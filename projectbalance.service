@@ -1,0 +1,15 @@
+[Unit]
+Description=AntiLag VPN Balancer Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/projectbalance
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production PORT=8080
+
+[Install]
+WantedBy=multi-user.target
