@@ -56,6 +56,7 @@ class AntiLagBalancer {
     if (updates.countryName !== undefined) node.countryName = updates.countryName.trim();
     if (updates.countryCode !== undefined) node.countryCode = updates.countryCode.trim().toUpperCase();
     if (updates.flag !== undefined) node.flag = updates.flag.trim();
+    if (updates.serverGroup !== undefined) node.serverGroup = updates.serverGroup.trim();
 
     return node;
   }
@@ -159,7 +160,7 @@ class AntiLagBalancer {
     };
   }
 
-  // Get nodes grouped by country with per-country aggregated metrics & ordering
+  // Get nodes grouped by country with per-country aggregated metrics, unique physical server counts, and custom ordering
   getGroupedNodes() {
     const groups = {};
 
@@ -178,17 +179,28 @@ class AntiLagBalancer {
           flag: node.flag,
           nodes: [],
           totalPing: 0,
-          activeConnectionsCount: 0
+          activeConnectionsCount: 0,
+          serverSet: new Set()
         };
       }
       groups[country].nodes.push(node);
       groups[country].totalPing += (node.ping || 0);
       groups[country].activeConnectionsCount += (activeNodeConnCounts[node.id] || 0);
+
+      // Track distinct physical server host IP or server group
+      const serverKey = node.serverGroup || node.address;
+      groups[country].serverSet.add(serverKey);
     }
 
     const groupList = Object.values(groups).map(g => ({
-      ...g,
+      countryName: g.countryName,
+      countryCode: g.countryCode,
+      flag: g.flag,
+      nodes: g.nodes,
+      totalPing: g.totalPing,
+      activeConnectionsCount: g.activeConnectionsCount,
       nodesCount: g.nodes.length,
+      serversCount: g.serverSet.size,
       avgPing: g.nodes.length > 0 ? Math.round(g.totalPing / g.nodes.length) : 0
     }));
 

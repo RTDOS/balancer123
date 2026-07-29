@@ -3,25 +3,25 @@ const https = require('https');
 
 /**
  * Multi-Server High-Availability Cluster & P2P Sync Engine
- * Synchronizes VPN nodes, balancer modes, country ordering and health telemetry across 2-3 servers.
+ * Synchronizes VPN nodes, balancer modes, country ordering and health telemetry across 2-3 servers using panel credentials.
  */
 
 class ClusterEngine {
   constructor(balancer) {
     this.balancer = balancer;
-    this.peers = []; // Array of { id, url, secret, status: 'online'|'offline', lastSyncTime }
+    this.peers = []; // Array of { id, url, username, password, status: 'online'|'offline', lastSyncTime }
     this.syncIntervalId = null;
-    this.serverSecret = 'cluster-secret-key-123';
   }
 
-  addPeer(peerUrl, secret = '') {
+  addPeer(peerUrl, username = 'admin', password = 'admin') {
     const cleanUrl = peerUrl.replace(/\/$/, '');
     if (this.peers.some(p => p.url === cleanUrl)) return false;
 
     const peer = {
       id: 'peer_' + Math.random().toString(36).substring(2, 8),
       url: cleanUrl,
-      secret: secret || this.serverSecret,
+      username: username || 'admin',
+      password: password || 'admin',
       status: 'unknown',
       lastSyncTime: null,
       nodeCount: 0
@@ -59,7 +59,8 @@ class ClusterEngine {
   async syncPeer(peer) {
     try {
       const payload = JSON.stringify({
-        secret: peer.secret,
+        username: peer.username,
+        password: peer.password,
         mode: this.balancer.mode,
         nodes: this.balancer.nodes,
         countryOrder: this.balancer.countryOrder
@@ -119,7 +120,14 @@ class ClusterEngine {
     return {
       activePeersCount: this.peers.filter(p => p.status === 'online').length,
       totalPeersCount: this.peers.length,
-      peers: this.peers
+      peers: this.peers.map(p => ({
+        id: p.id,
+        url: p.url,
+        username: p.username,
+        status: p.status,
+        lastSyncTime: p.lastSyncTime,
+        nodeCount: p.nodeCount
+      }))
     };
   }
 }

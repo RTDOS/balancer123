@@ -18,28 +18,39 @@
         <div class="logo-icon">⚡</div>
         <div class="brand-text">
           <h1>AntiLag Router</h1>
-          <span class="version-tag">v1.5 Password & Proxy Auth Core</span>
+          <span class="version-tag">v2.0 Server Grouping & Security Shield</span>
         </div>
       </div>
       <div class="navbar-actions">
-        <div class="port-badge">
+        <div class="port-badge" id="navbarInboundsBadge" onclick="openInboundsConfigModal()" style="cursor:pointer;" title="Нажмите для настройки портов прокси">
           <span class="dot active"></span>
-          SOCKS5: <strong id="socksPort">1080</strong> | HTTP: <strong id="httpPort">1081</strong>
+          <span id="socksPortDisplay">SOCKS5: 1080</span>
+          <span style="opacity:0.4;">|</span>
+          <span id="httpPortDisplay">HTTP: 1081</span>
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="openAuthModal()" title="Безопасность и пароли">
-          🔐 Пароль & Доступ
+        <button class="btn btn-secondary btn-sm" onclick="openInboundsConfigModal()" title="Настройка HTTP и SOCKS5 подключений">
+          🔀 Конфигурация HTTP / SOCKS
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="openAdminAuthModal()" title="Пароль доступа к веб-панели">
+          🔐 Пароль Панели
         </button>
         <button class="btn btn-secondary btn-sm" onclick="openSecretSettingsModal()" title="Настройки секретного пути">
           🔒 Путь: <code id="secretPathBadge">/secret/</code>
         </button>
         <button class="btn btn-secondary btn-sm" onclick="openExportModal()" title="Экспорт ссылок для клиентов">
-          🔗 Подписки для клиентов
+          🔗 Подписки
         </button>
-        <button class="btn btn-primary" onclick="openImportModal()">
-          <span>+ Импорт ссылок / Подписки</span>
+        <button class="btn btn-primary btn-sm" onclick="openImportModal()">
+          <span>+ Импорт ссылок</span>
         </button>
       </div>
     </header>
+
+    <!-- Default Password Alert Banner -->
+    <div id="defaultPassWarningBanner" style="display:none; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#f87171; padding:10px 16px; border-radius:12px; margin-bottom:16px; font-size:13px; align-items:center; justify-content:space-between;">
+      <span>⚠️ <strong>Внимание:</strong> Вы используете стандартный пароль панели (<code>admin / admin</code>). Смените его для защиты сервера!</span>
+      <button class="btn btn-secondary btn-sm" onclick="openAdminAuthModal()" style="background:rgba(239,68,68,0.3); border-color:#ef4444; color:#fff;">Сменить пароль в 1 клик</button>
+    </div>
 
     <!-- Main Grid -->
     <main class="content-grid">
@@ -181,62 +192,180 @@
     </main>
   </div>
 
-  <!-- Security & Password Generator Modal -->
-  <div class="modal-overlay" id="authModal">
-    <div class="modal-card">
+  <!-- Interactive HTTP & SOCKS Inbound Proxy Configuration Modal -->
+  <div class="modal-overlay" id="inboundsConfigModal">
+    <div class="modal-card" style="max-width:720px;">
       <div class="modal-header">
-        <h2>🔐 Пароль и безопасность доступа</h2>
-        <button class="close-btn" onclick="closeAuthModal()">&times;</button>
+        <h2>🔀 Конфигурация HTTP / SOCKS Прокси</h2>
+        <button class="close-btn" onclick="closeInboundsConfigModal()">&times;</button>
       </div>
       <div class="modal-body">
         <p class="modal-hint">
-          Сгенерируйте надежный пароль для защиты веб-панели и входящих SOCKS5/HTTP прокси портов:
+          Настройте порты, логины и пароли для входящих подключений. Ссылка подключения обновляется динамически в реальном времени!
         </p>
-        <div class="form-group" style="margin-top:12px;">
-          <label>Логин администратора (Username)</label>
-          <input type="text" id="authUsernameInput" class="form-input" placeholder="admin">
-        </div>
-        <div class="form-group" style="margin-top:12px;">
-          <label>Пароль (Password)</label>
-          <div style="display:flex; gap:8px;">
-            <input type="text" id="authPasswordInput" class="form-input" placeholder="Введите пароль или сгенерируйте" style="font-family:'JetBrains Mono', monospace;">
-            <button class="btn btn-secondary" onclick="generateRandomPassword()" style="white-space:nowrap;">🎲 Сгенерировать</button>
-          </div>
-        </div>
 
-        <div class="form-group" style="margin-top:16px; display:flex; align-items:center; gap:8px;">
-          <input type="checkbox" id="inboundAuthCheckbox" style="width:18px; height:18px; cursor:pointer;">
-          <label for="inboundAuthCheckbox" style="margin:0; cursor:pointer; font-weight:600; color:var(--text-main);">
-            Защитить SOCKS5 (1080) и HTTP (1081) этим же логином и паролем
-          </label>
+        <div id="inboundsListContainer" style="display:flex; flex-direction:column; gap:16px; margin-top:14px;">
+          <!-- Dynamic Inbound Cards rendered in JS -->
         </div>
       </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeAuthModal()">Отмена</button>
-        <button class="btn btn-primary" onclick="submitAuthSettings()">Сохранить настройки</button>
+      <div class="modal-footer" style="justify-content:space-between;">
+        <button class="btn btn-secondary" onclick="openAddInboundModal()">+ Добавить ещё прокси (HTTP / SOCKS)</button>
+        <button class="btn btn-primary" onclick="closeInboundsConfigModal()">Готово</button>
       </div>
     </div>
   </div>
 
-  <!-- Login Modal -->
-  <div class="modal-overlay" id="loginModal">
-    <div class="modal-card" style="max-width:400px;">
+  <!-- Add New Inbound Modal -->
+  <div class="modal-overlay" id="addInboundModal">
+    <div class="modal-card" style="max-width:440px;">
       <div class="modal-header">
-        <h2>🔐 Авторизация AntiLag Router</h2>
+        <h2>+ Добавление входящего прокси портов</h2>
+        <button class="close-btn" onclick="closeAddInboundModal()">&times;</button>
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label>Логин</label>
-          <input type="text" id="loginUsernameInput" class="form-input" placeholder="admin">
+          <label>Тип протокола</label>
+          <select id="newInboundType" class="form-input">
+            <option value="socks5">SOCKS5 Прокси</option>
+            <option value="http">HTTP Прокси</option>
+          </select>
         </div>
         <div class="form-group" style="margin-top:12px;">
-          <label>Пароль</label>
-          <input type="password" id="loginPasswordInput" class="form-input" placeholder="Пароль">
+          <label>Порт прокси</label>
+          <input type="number" id="newInboundPort" class="form-input" placeholder="1082">
         </div>
-        <div id="loginErrorMsg" style="color:var(--neon-red); font-size:12px; margin-top:8px; display:none;"></div>
+        <div class="form-group" style="margin-top:12px;">
+          <label>Логин (Username)</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="newInboundUser" class="form-input" placeholder="например: usr_aK8xP2mQ9z">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="generateNewInboundUsernameDirect()" title="Сгенерировать случайный логин">🎲 Логин</button>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label>Пароль (Password)</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="newInboundPass" class="form-input" placeholder="например: X-Y7+0WBuF5" style="font-family:'JetBrains Mono', monospace;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="generateNewInboundPasswordDirect()" title="Сгенерировать случайный пароль">🎲 Пароль</button>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-primary" onclick="submitLogin()" style="width:100%;">Войти в панель</button>
+        <button class="btn btn-secondary" onclick="closeAddInboundModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="submitAddInbound()">Создать прокси</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Panel Auth Modal (Form wrapped for Google Chrome Password Saver) -->
+  <div class="modal-overlay" id="adminAuthModal">
+    <div class="modal-card" style="max-width:440px;">
+      <div class="modal-header">
+        <h2>🔐 Пароль Панели Управления</h2>
+        <button class="close-btn" onclick="closeAdminAuthModal()">&times;</button>
+      </div>
+      <form action="javascript:void(0)" onsubmit="submitAdminAuth()" method="post" autocomplete="on">
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="adminUsernameInput">Логин администратора (Username)</label>
+            <input type="text" name="username" id="adminUsernameInput" class="form-input" placeholder="admin" autocomplete="username" required>
+          </div>
+          <div class="form-group" style="margin-top:12px;">
+            <label for="adminPasswordInput">Новый пароль панели (Password)</label>
+            <div style="display:flex; gap:8px;">
+              <input type="text" name="password" id="adminPasswordInput" class="form-input" placeholder="Введите или сгенерируйте" style="font-family:'JetBrains Mono', monospace;" autocomplete="new-password" required>
+              <button class="btn btn-secondary" type="button" onclick="generateAdminPasswordDirect()" style="white-space:nowrap;">🎲 Сгенерировать</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" type="button" onclick="closeAdminAuthModal()">Отмена</button>
+          <button class="btn btn-primary" type="submit">Сохранить пароль</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Mandatory Login Modal (Supports Google Chrome Password Manager Save) -->
+  <div class="modal-overlay" id="loginModal">
+    <div class="modal-card" style="max-width:400px;">
+      <div class="modal-header">
+        <h2>🔐 Вход в AntiLag Router</h2>
+      </div>
+      <form action="javascript:void(0)" onsubmit="submitLogin()" method="post">
+        <div class="modal-body">
+          <p style="font-size:13px; color:#9ca3af; margin-bottom:12px;">
+            Введите логин и пароль для доступа к панели управления. При первом входе: <code>admin / admin</code>.
+          </p>
+          <div class="form-group">
+            <label for="loginUsernameInput">Логин</label>
+            <input type="text" name="username" id="loginUsernameInput" class="form-input" placeholder="admin" value="admin" autocomplete="username" required>
+          </div>
+          <div class="form-group" style="margin-top:12px;">
+            <label for="loginPasswordInput">Пароль</label>
+            <input type="password" name="password" id="loginPasswordInput" class="form-input" placeholder="Пароль" value="admin" autocomplete="current-password" required>
+          </div>
+          <div id="loginErrorMsg" style="color:var(--neon-red); font-size:12px; margin-top:8px; display:none;"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" type="submit" style="width:100%;">Войти в панель</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Mandatory First Login Change Password Modal -->
+  <div class="modal-overlay" id="forceChangePassModal">
+    <div class="modal-card" style="max-width:440px;">
+      <div class="modal-header">
+        <h2>⚠️ Обязательная смена пароля</h2>
+      </div>
+      <form action="javascript:void(0)" onsubmit="submitForceChangePassword()" method="post">
+        <div class="modal-body">
+          <p style="font-size:13px; color:#f87171; margin-bottom:12px;">
+            Вы вошли со стандартным паролем (<code>admin</code>). Для защиты сервера необходимо установить свой или сгенерировать новый пароль!
+          </p>
+          <div class="form-group">
+            <label for="forceUsernameInput">Логин администратора</label>
+            <input type="text" name="username" id="forceUsernameInput" class="form-input" value="admin" autocomplete="username" required>
+          </div>
+          <div class="form-group" style="margin-top:12px;">
+            <label for="forcePasswordInput">Новый безопасный пароль</label>
+            <div style="display:flex; gap:8px;">
+              <input type="text" name="password" id="forcePasswordInput" class="form-input" placeholder="Придумайте пароль" style="font-family:'JetBrains Mono', monospace;" autocomplete="new-password" required>
+              <button class="btn btn-secondary" type="button" onclick="generateForcePasswordDirect()">🎲 Сгенерировать</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" type="submit" style="width:100%;">Сохранить пароль и войти</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Secret Settings Modal with 1-Click Generator -->
+  <div class="modal-overlay" id="secretSettingsModal">
+    <div class="modal-card" style="max-width:440px;">
+      <div class="modal-header">
+        <h2>Настройка секретного пути доступа</h2>
+        <button class="close-btn" onclick="closeSecretSettingsModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">
+          Прямой доступ к коренному URL <code>/</code> выдает посторонним сканерам **Nginx 404 Camouflage Page**.
+          Доступ к панели возможен только через ваш секретный путь.
+        </p>
+        <div class="form-group" style="margin-top:12px;">
+          <label>Секретный путь (URL Path)</label>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="secretPathInput" class="form-input" placeholder="secret-admin-777">
+            <button class="btn btn-secondary" type="button" onclick="generateSecretPathDirect()" style="white-space:nowrap;">🎲 Сгенерировать</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeSecretSettingsModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="submitSecretPath()">Сохранить путь</button>
       </div>
     </div>
   </div>
@@ -268,27 +397,34 @@
 
   <!-- Export Subscriptions Modal -->
   <div class="modal-overlay" id="exportModal">
-    <div class="modal-card">
+    <div class="modal-card" style="max-width:620px;">
       <div class="modal-header">
         <h2>🔗 Экспорт ссылок и подписок для клиентов</h2>
         <button class="close-btn" onclick="closeExportModal()">&times;</button>
       </div>
       <div class="modal-body">
         <p class="modal-hint">
-          Вы можете скопировать единую подписку или конфигурации всех активных сбалансированных серверов для отправки клиентам:
+          Вы можете скопировать единые подписки или конфигурации всех активных прокси и VPN-серверов для отправки клиентам:
         </p>
+        
         <div class="form-group" style="margin-top:12px;">
-          <label>Локальный SOCKS5 / HTTP прокси адрес для клиентов</label>
-          <input type="text" readonly class="form-input" id="clientSocksExport">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <label style="margin:0;">Локальные SOCKS5 / HTTP прокси адреса для клиентов</label>
+            <button class="btn btn-secondary btn-sm" onclick="copyClientSocksProxies()" style="padding:2px 8px; font-size:11px;">📋 Скопировать прокси</button>
+          </div>
+          <textarea id="clientSocksExportArea" readonly rows="4" style="font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--neon-cyan);"></textarea>
         </div>
-        <div class="form-group" style="margin-top:12px;">
-          <label>Список всех сбалансированных VPN-ссылок</label>
-          <textarea id="exportTextarea" readonly rows="7" style="font-family:'JetBrains Mono', monospace; font-size:12px;"></textarea>
+
+        <div class="form-group" style="margin-top:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <label style="margin:0;">Список всех сбалансированных VPN-ссылок</label>
+            <button class="btn btn-secondary btn-sm" onclick="copyExportLinks()" style="padding:2px 8px; font-size:11px;">📋 Скопировать VPN</button>
+          </div>
+          <textarea id="exportTextarea" readonly rows="6" style="font-family:'JetBrains Mono', monospace; font-size:12px;"></textarea>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeExportModal()">Закрыть</button>
-        <button class="btn btn-primary" onclick="copyExportLinks()">📋 Скопировать ссылки</button>
+        <button class="btn btn-primary" onclick="closeExportModal()">Закрыть</button>
       </div>
     </div>
   </div>
@@ -356,8 +492,12 @@
           <input type="text" id="peerUrlInput" class="form-input" placeholder="http://194.168.1.50:8080">
         </div>
         <div class="form-group" style="margin-top:12px;">
-          <label>Ключ безопасности кластера (Cluster Secret)</label>
-          <input type="password" id="peerSecretInput" class="form-input" placeholder="cluster-secret-key-123">
+          <label>Логин панели целевого сервера (Username)</label>
+          <input type="text" id="peerUserInput" class="form-input" placeholder="admin" value="admin">
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label>Пароль панели целевого сервера (Password)</label>
+          <input type="password" id="peerPassInput" class="form-input" placeholder="Пароль панели сервера">
         </div>
       </div>
       <div class="modal-footer">
@@ -367,35 +507,11 @@
     </div>
   </div>
 
-  <!-- Secret Settings Modal -->
-  <div class="modal-overlay" id="secretSettingsModal">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h2>Настройка секретного пути доступа</h2>
-        <button class="close-btn" onclick="closeSecretSettingsModal()">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p class="modal-hint">
-          Прямой доступ к коренному URL <code>/</code> выдает посторонним сканерам **Nginx 404 Camouflage Page**.
-          Доступ к панели возможен только через ваш секретный путь.
-        </p>
-        <div class="form-group" style="margin-top:12px;">
-          <label>Секретный путь (URL Path)</label>
-          <input type="text" id="secretPathInput" class="form-input" placeholder="secret-admin-777">
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeSecretSettingsModal()">Отмена</button>
-        <button class="btn btn-primary" onclick="submitSecretPath()">Сохранить путь</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Edit Node Modal -->
+  <!-- Edit Node Modal (With Physical Server Group Editing) -->
   <div class="modal-overlay" id="editNodeModal">
     <div class="modal-card">
       <div class="modal-header">
-        <h2>Редактирование подключения / страны</h2>
+        <h2>Редактирование подключения / физического сервера</h2>
         <button class="close-btn" onclick="closeEditNodeModal()">&times;</button>
       </div>
       <div class="modal-body">
@@ -403,6 +519,11 @@
         <div class="form-group">
           <label>Название подключения</label>
           <input type="text" id="editNodeName" class="form-input" placeholder="Название сервера">
+        </div>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label>Физическая группа / Имя физического сервера (например: Сервер 1)</label>
+          <input type="text" id="editServerGroup" class="form-input" placeholder="например: Frankfurt-Node-01 или Сервер 1">
         </div>
 
         <div class="form-group" style="margin-top:12px;">

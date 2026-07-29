@@ -5,6 +5,8 @@ let currentGroupedCountries = [];
 let activeTelemetryRange = '15m';
 let hasAdminPassword = false;
 let currentAdminUsername = 'admin';
+let currentInboundsList = [];
+let isAuthenticatedSession = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   initChart();
@@ -88,16 +90,45 @@ function fetchInitialStatus() {
     .then(res => res.json())
     .then(data => {
       if (data.success) {
-        document.getElementById('socksPort').innerText = data.inbounds.socks5;
-        document.getElementById('httpPort').innerText = data.inbounds.http;
+        isAuthenticatedSession = !!data.authenticated;
+
+        // MANDATORY CHECK: If not logged in, force open Login Modal!
+        if (!isAuthenticatedSession) {
+          document.getElementById('loginModal').classList.add('open');
+          return;
+        }
+
+        if (data.inbounds) {
+          currentInboundsList = data.inbounds;
+          renderNavbarInboundsBadge(currentInboundsList);
+        }
         if (data.secretPath) {
           document.getElementById('secretPathBadge').innerText = `/${data.secretPath}/`;
         }
         hasAdminPassword = !!data.hasPassword;
         currentAdminUsername = data.adminUsername || 'admin';
+        toggleDefaultPassBanner(data.isDefaultPassword);
         updateModeUI(data.mode);
       }
     });
+}
+
+function toggleDefaultPassBanner(isDefault) {
+  const banner = document.getElementById('defaultPassWarningBanner');
+  if (banner) {
+    banner.style.display = isDefault ? 'flex' : 'none';
+  }
+}
+
+function renderNavbarInboundsBadge(inbounds) {
+  const socksInb = inbounds.find(i => i.type === 'socks5');
+  const httpInb = inbounds.find(i => i.type === 'http');
+
+  const socksText = socksInb ? `SOCKS5: ${socksInb.port}` : 'SOCKS5: Off';
+  const httpText = httpInb ? `HTTP: ${httpInb.port}` : 'HTTP: Off';
+
+  document.getElementById('socksPortDisplay').innerText = socksText;
+  document.getElementById('httpPortDisplay').innerText = httpText;
 }
 
 function renderState(data) {
@@ -107,8 +138,14 @@ function renderState(data) {
     document.getElementById('secretPathBadge').innerText = `/${data.secretPath}/`;
   }
 
+  if (data.inbounds) {
+    currentInboundsList = data.inbounds;
+    renderNavbarInboundsBadge(currentInboundsList);
+  }
+
   hasAdminPassword = !!data.hasPassword;
   currentAdminUsername = data.adminUsername || 'admin';
+  toggleDefaultPassBanner(data.isDefaultPassword);
 
   const nodes = data.nodes || [];
   document.getElementById('nodeCount').innerText = nodes.length;
@@ -211,7 +248,7 @@ function renderGroupedNodes(grouped) {
         <div class="country-stats">
           <span class="country-stat-badge">⚡ Ср. пинг: ${group.avgPing} ms</span>
           <span class="country-stat-badge active-conns">🔀 Соединений: ${group.activeConnectionsCount}</span>
-          <span class="country-stat-badge" style="background:rgba(255,255,255,0.08); color:#9ca3af;">🌐 Серверов: ${group.nodesCount}</span>
+          <span class="country-stat-badge" style="background:rgba(255,255,255,0.08); color:#9ca3af;">🌐 Узлов: ${group.nodesCount} | Серверов: ${group.serversCount || 1}</span>
         </div>
       </div>
       <div class="move-group-btns">
@@ -229,12 +266,14 @@ function renderGroupedNodes(grouped) {
       if (node.ping > 80) pingClass = 'ping-warn';
       if (node.ping > 200 || node.lossRatio > 10) pingClass = 'ping-bad';
 
+      const serverGroupLabel = node.serverGroup ? `<span style="font-size:10px; background:rgba(99,102,241,0.2); color:#a5b4fc; padding:2px 6px; border-radius:4px; margin-left:6px;">🖥️ ${node.serverGroup}</span>` : '';
+
       card.innerHTML = `
         <div class="node-top">
           <div class="node-title-group">
             <span class="node-flag">${node.flag}</span>
             <div>
-              <div class="node-name">${node.name}</div>
+              <div class="node-name">${node.name} ${serverGroupLabel}</div>
               <div style="font-size:11px; color:#9ca3af; margin-top:2px;">${node.address}:${node.port}</div>
             </div>
           </div>
@@ -248,7 +287,7 @@ function renderGroupedNodes(grouped) {
         <div class="node-footer">
           <span>Статус: <strong style="color:${node.status === 'active' ? '#10b981' : '#ef4444'}">${node.status.toUpperCase()}</strong></span>
           <div class="node-actions">
-            <button class="node-action-btn" onclick="openEditNodeModal('${node.id}')" title="Редактировать страну/название">✏️</button>
+            <button class="node-action-btn" onclick="openEditNodeModal('${node.id}')" title="Редактировать группу/сервер/страну">✏️</button>
             <button class="delete-node-btn" onclick="deleteNode('${node.id}')" title="Удалить узел">🗑️</button>
           </div>
         </div>
@@ -311,7 +350,7 @@ function renderClusterPeers(clusterData) {
   container.innerHTML = peers.map(p => `
     <div class="peer-card">
       <div>
-        <div class="peer-url">🌐 ${p.url}</div>
+        <div class="peer-url">🌐 ${p.url} (User: ${p.username || 'admin'})</div>
         <div style="font-size:11px; color:#9ca3af; margin-top:2px;">Нод: ${p.nodeCount || 0} | Синхр: ${p.lastSyncTime || 'Запуск...'}</div>
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
@@ -344,47 +383,239 @@ function tickSocketUptimes() {
   });
 }
 
-function openAuthModal() {
-  document.getElementById('authUsernameInput').value = currentAdminUsername;
-  document.getElementById('authPasswordInput').value = '';
-  document.getElementById('authModal').classList.add('open');
-}
+// --- INTERACTIVE INBOUND PROXY CONFIGURATION LOGIC ---
 
-function closeAuthModal() {
-  document.getElementById('authModal').classList.remove('open');
-}
-
-function generateRandomPassword() {
-  fetch('/api/settings/auth', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'generate' })
-  }).then(res => res.json())
+function openInboundsConfigModal() {
+  fetch('/api/inbounds')
+    .then(res => res.json())
     .then(data => {
-      if (data.success && data.adminPassword) {
-        document.getElementById('authPasswordInput').value = data.adminPassword;
-        alert(`Сгенерирован новый пароль: ${data.adminPassword}\nСохраните его!`);
+      if (data.success) {
+        currentInboundsList = data.inbounds;
+        renderInboundsConfigCards(currentInboundsList);
+        document.getElementById('inboundsConfigModal').classList.add('open');
       }
     });
 }
 
-function submitAuthSettings() {
-  const username = document.getElementById('authUsernameInput').value;
-  const password = document.getElementById('authPasswordInput').value;
-  const inboundAuthRequired = document.getElementById('inboundAuthCheckbox').checked;
+function closeInboundsConfigModal() {
+  document.getElementById('inboundsConfigModal').classList.remove('open');
+}
 
-  fetch('/api/settings/auth', {
-    method: 'POST',
+function renderInboundsConfigCards(inbounds) {
+  const container = document.getElementById('inboundsListContainer');
+  container.innerHTML = '';
+
+  const host = window.location.hostname || 'localhost';
+
+  inbounds.forEach((inb) => {
+    const card = document.createElement('div');
+    card.className = 'inbound-card';
+    card.id = `inboundCard_${inb.id}`;
+
+    const initialUser = inb.username || '';
+    const initialPass = inb.password || '';
+    const initialPort = inb.port || 1080;
+    const initialType = inb.type || 'socks5';
+
+    const authPart = (initialUser && initialPass) ? `${initialUser}:${initialPass}@` : '';
+    const liveUrl = `${initialType}://${authPart}${host}:${initialPort}`;
+
+    card.innerHTML = `
+      <div class="inbound-card-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="inbound-badge ${initialType}">${initialType.toUpperCase()}</span>
+          <strong style="font-size:14px;">${inb.name}</strong>
+        </div>
+        <button class="delete-node-btn" onclick="deleteInboundProxy('${inb.id}')" title="Удалить этот прокси порт">🗑️</button>
+      </div>
+
+      <div class="form-row" style="display:flex; gap:10px;">
+        <div style="flex:1;">
+          <label style="font-size:12px;">Протокол</label>
+          <select id="inbType_${inb.id}" class="form-input" onchange="updateInboundPreview('${inb.id}')">
+            <option value="socks5" ${initialType === 'socks5' ? 'selected' : ''}>SOCKS5</option>
+            <option value="http" ${initialType === 'http' ? 'selected' : ''}>HTTP</option>
+          </select>
+        </div>
+        <div style="flex:1;">
+          <label style="font-size:12px;">Порт</label>
+          <input type="number" id="inbPort_${inb.id}" class="form-input" value="${initialPort}" oninput="updateInboundPreview('${inb.id}')">
+        </div>
+      </div>
+
+      <div class="form-row" style="display:flex; gap:10px;">
+        <div style="flex:1;">
+          <label style="font-size:12px;">Логин (Username)</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="inbUser_${inb.id}" class="form-input" value="${initialUser}" placeholder="без пароля" oninput="updateInboundPreview('${inb.id}')">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="generateInboundUserDirect('${inb.id}')" title="Сгенерировать логин">🎲</button>
+          </div>
+        </div>
+        <div style="flex:1;">
+          <label style="font-size:12px;">Пароль (Password)</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="inbPass_${inb.id}" class="form-input" value="${initialPass}" placeholder="без пароля" style="font-family:'JetBrains Mono', monospace;" oninput="updateInboundPreview('${inb.id}')">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="generateInboundPassDirect('${inb.id}')" title="Сгенерировать пароль">🎲</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Dynamic Connection String Preview Box -->
+      <div>
+        <label style="font-size:11px; color:#9ca3af;">Динамическая ссылка подключения (Live Connection String):</label>
+        <div class="inbound-preview-box">
+          <span id="inbPreview_${inb.id}">${liveUrl}</span>
+          <button class="btn btn-secondary btn-sm" onclick="copyProxyString('inbPreview_${inb.id}')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:4px;">
+        <button class="btn btn-primary btn-sm" onclick="saveInboundProxy('${inb.id}')">💾 Сохранить изменения</button>
+      </div>
+    `;
+
+    container.appendChild(card);
+  });
+}
+
+function updateInboundPreview(id) {
+  const host = window.location.hostname || 'localhost';
+  const type = document.getElementById(`inbType_${id}`).value;
+  const port = document.getElementById(`inbPort_${id}`).value || 1080;
+  const user = document.getElementById(`inbUser_${id}`).value.trim();
+  const pass = document.getElementById(`inbPass_${id}`).value.trim();
+
+  const authPart = (user && pass) ? `${user}:${pass}@` : '';
+  const liveUrl = `${type}://${authPart}${host}:${port}`;
+
+  const previewEl = document.getElementById(`inbPreview_${id}`);
+  if (previewEl) {
+    previewEl.innerText = liveUrl;
+  }
+}
+
+function generateInboundUserDirect(id) {
+  fetch('/api/generate-username')
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.username) {
+        const userInput = document.getElementById(`inbUser_${id}`);
+        userInput.value = data.username;
+        updateInboundPreview(id);
+      }
+    });
+}
+
+function generateInboundPassDirect(id) {
+  fetch('/api/generate-password')
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.password) {
+        const passInput = document.getElementById(`inbPass_${id}`);
+        passInput.value = data.password;
+        updateInboundPreview(id);
+      }
+    });
+}
+
+function generateNewInboundUsernameDirect() {
+  fetch('/api/generate-username')
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.username) {
+        document.getElementById('newInboundUser').value = data.username;
+      }
+    });
+}
+
+function generateNewInboundPasswordDirect() {
+  fetch('/api/generate-password')
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.password) {
+        document.getElementById('newInboundPass').value = data.password;
+      }
+    });
+}
+
+function copyProxyString(elementId) {
+  const text = document.getElementById(elementId).innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    alert(`Ссылка скопирована: ${text}`);
+  });
+}
+
+function saveInboundProxy(id) {
+  const type = document.getElementById(`inbType_${id}`).value;
+  const port = document.getElementById(`inbPort_${id}`).value;
+  const username = document.getElementById(`inbUser_${id}`).value;
+  const password = document.getElementById(`inbPass_${id}`).value;
+
+  fetch(`/api/inbounds/${id}`, {
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, inboundAuthRequired })
+    body: JSON.stringify({ type, port, username, password })
   }).then(res => res.json())
     .then(data => {
       if (data.success) {
-        closeAuthModal();
-        alert('Настройки безопасности успешно обновлены!');
+        currentInboundsList = data.inbounds;
+        renderNavbarInboundsBadge(currentInboundsList);
+        renderInboundsConfigCards(currentInboundsList);
+        alert('Прокси подключение успешно обновлено!');
+      } else {
+        alert(data.message || 'Ошибка обновления прокси');
       }
     });
 }
+
+function deleteInboundProxy(id) {
+  if (!confirm('Вы уверены, что хотите удалить этот прокси порт?')) return;
+
+  fetch(`/api/inbounds/${id}`, { method: 'DELETE' })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        currentInboundsList = data.inbounds;
+        renderNavbarInboundsBadge(currentInboundsList);
+        renderInboundsConfigCards(currentInboundsList);
+      } else {
+        alert(data.message || 'Нельзя удалить данный прокси');
+      }
+    });
+}
+
+function openAddInboundModal() {
+  document.getElementById('addInboundModal').classList.add('open');
+}
+
+function closeAddInboundModal() {
+  document.getElementById('addInboundModal').classList.remove('open');
+}
+
+function submitAddInbound() {
+  const type = document.getElementById('newInboundType').value;
+  const port = document.getElementById('newInboundPort').value;
+  const username = document.getElementById('newInboundUser').value;
+  const password = document.getElementById('newInboundPass').value;
+
+  fetch('/api/inbounds', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, port, username, password })
+  }).then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        closeAddInboundModal();
+        currentInboundsList = data.inbounds;
+        renderNavbarInboundsBadge(currentInboundsList);
+        renderInboundsConfigCards(currentInboundsList);
+      } else {
+        alert(data.message || 'Ошибка создания прокси');
+      }
+    });
+}
+
+// --- MANDATORY AUTH & LOGIN LOGIC ---
 
 function submitLogin() {
   const username = document.getElementById('loginUsernameInput').value;
@@ -399,10 +630,95 @@ function submitLogin() {
     .then(data => {
       if (data.success) {
         document.getElementById('loginModal').classList.remove('open');
-        window.location.reload();
+        
+        // MANDATORY: If first login with default password (admin), force password change!
+        if (data.isDefaultPassword) {
+          document.getElementById('forceChangePassModal').classList.add('open');
+        } else {
+          window.location.reload();
+        }
       } else {
         errorEl.innerText = data.message || 'Ошибка авторизации';
         errorEl.style.display = 'block';
+      }
+    });
+}
+
+function generateForcePasswordDirect() {
+  fetch('/api/generate-password')
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.password) {
+        const input = document.getElementById('forcePasswordInput');
+        input.value = data.password;
+      }
+    });
+}
+
+function submitForceChangePassword() {
+  const username = document.getElementById('forceUsernameInput').value;
+  const password = document.getElementById('forcePasswordInput').value;
+
+  if (!password || password.trim() === 'admin') {
+    alert('Пароль не может быть "admin"! Придумайте или сгенерируйте свой пароль.');
+    return;
+  }
+
+  fetch('/api/settings/auth', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  }).then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        document.getElementById('forceChangePassModal').classList.remove('open');
+        alert('Пароль успешно создан! Теперь войдите в панель с вашим новым логином и паролем.');
+        document.getElementById('loginUsernameInput').value = username;
+        document.getElementById('loginPasswordInput').value = '';
+        document.getElementById('loginModal').classList.add('open');
+      }
+    });
+}
+
+function openAdminAuthModal() {
+  document.getElementById('adminUsernameInput').value = currentAdminUsername;
+  document.getElementById('adminPasswordInput').value = '';
+  document.getElementById('adminAuthModal').classList.add('open');
+}
+
+function closeAdminAuthModal() {
+  document.getElementById('adminAuthModal').classList.remove('open');
+}
+
+function generateAdminPasswordDirect() {
+  fetch('/api/generate-password')
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.password) {
+        const input = document.getElementById('adminPasswordInput');
+        input.value = data.password;
+        input.type = 'text';
+        input.select();
+      }
+    });
+}
+
+function submitAdminAuth() {
+  const username = document.getElementById('adminUsernameInput').value;
+  const password = document.getElementById('adminPasswordInput').value;
+
+  fetch('/api/settings/auth', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  }).then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        closeAdminAuthModal();
+        alert('Данные доступа успешно сменены! Пожалуйста, войдите в панель с вашим новым логином и паролем.');
+        document.getElementById('loginUsernameInput').value = username;
+        document.getElementById('loginPasswordInput').value = '';
+        document.getElementById('loginModal').classList.add('open');
       }
     });
 }
@@ -466,6 +782,16 @@ function closeSecretSettingsModal() {
   document.getElementById('secretSettingsModal').classList.remove('open');
 }
 
+function generateSecretPathDirect() {
+  fetch('/api/generate-secret-path')
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.secretPath) {
+        document.getElementById('secretPathInput').value = data.secretPath;
+      }
+    });
+}
+
 function submitSecretPath() {
   const secretPath = document.getElementById('secretPathInput').value;
   if (!secretPath.trim()) return;
@@ -493,13 +819,14 @@ function closeAddPeerModal() {
 
 function submitAddPeer() {
   const peerUrl = document.getElementById('peerUrlInput').value;
-  const secret = document.getElementById('peerSecretInput').value;
+  const username = document.getElementById('peerUserInput').value;
+  const password = document.getElementById('peerPassInput').value;
   if (!peerUrl.trim()) return;
 
   fetch('/api/cluster/peers', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ peerUrl, secret })
+    body: JSON.stringify({ peerUrl, username, password })
   }).then(res => res.json())
     .then(data => {
       if (data.success) {
@@ -520,6 +847,7 @@ function openEditNodeModal(nodeId) {
 
   document.getElementById('editNodeId').value = node.id;
   document.getElementById('editNodeName').value = node.name || '';
+  document.getElementById('editServerGroup').value = node.serverGroup || node.address || '';
   document.getElementById('editCountryName').value = node.countryName || '';
   document.getElementById('editCountryCode').value = node.countryCode || '';
   document.getElementById('editNodeFlag').value = node.flag || '';
@@ -551,6 +879,7 @@ function closeEditNodeModal() {
 function submitEditNode() {
   const id = document.getElementById('editNodeId').value;
   const name = document.getElementById('editNodeName').value;
+  const serverGroup = document.getElementById('editServerGroup').value;
   const countryName = document.getElementById('editCountryName').value;
   const countryCode = document.getElementById('editCountryCode').value;
   const flag = document.getElementById('editNodeFlag').value;
@@ -558,7 +887,7 @@ function submitEditNode() {
   fetch(`/api/nodes/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, countryName, countryCode, flag })
+    body: JSON.stringify({ name, serverGroup, countryName, countryCode, flag })
   }).then(res => res.json())
     .then(data => {
       if (data.success) {
@@ -583,8 +912,16 @@ function closeModeInfoModal() {
 }
 
 function openExportModal() {
-  const host = window.location.host;
-  document.getElementById('clientSocksExport').value = `SOCKS5: ${host.split(':')[0]}:1080 | HTTP: ${host.split(':')[0]}:1081`;
+  const host = window.location.hostname || 'localhost';
+  const exportText = currentInboundsList.map(inb => {
+    const auth = (inb.username && inb.password) ? `${inb.username}:${inb.password}@` : '';
+    return `${inb.type}://${auth}${host}:${inb.port}`;
+  }).join('\n');
+
+  const area = document.getElementById('clientSocksExportArea');
+  if (area) {
+    area.value = exportText || 'Нет настроенных входящих прокси';
+  }
   
   const activeNodes = Array.from(currentNodesMap.values());
   const links = activeNodes.map(n => n.raw).join('\n\n');
@@ -595,6 +932,13 @@ function openExportModal() {
 
 function closeExportModal() {
   document.getElementById('exportModal').classList.remove('open');
+}
+
+function copyClientSocksProxies() {
+  const area = document.getElementById('clientSocksExportArea');
+  area.select();
+  document.execCommand('copy');
+  alert('Прокси адреса SOCKS5 / HTTP скопированы!');
 }
 
 function copyExportLinks() {

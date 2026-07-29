@@ -6,7 +6,7 @@ const WebSocket = require('ws');
 
 const AntiLagBalancer = require('./balancer');
 const HealthCheckEngine = require('./healthcheck');
-const InboundProxyManager = require('./inbound');
+const { InboundProxyManager, isPortAvailable } = require('./inbound');
 const ClusterEngine = require('./cluster');
 const { parseTextBlob, PRESET_COUNTRIES } = require('./parser');
 
@@ -14,11 +14,41 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Security & Authentication Configuration
+// Security & Authentication Configuration (Default admin/admin on first install)
 let SECRET_PATH = 'secret';
 let ADMIN_USERNAME = 'admin';
-let ADMIN_PASSWORD = ''; // Empty by default (no pass required until set/generated)
-let INBOUND_AUTH_REQUIRED = false;
+let ADMIN_PASSWORD = 'admin'; // Default admin/admin
+let IS_DEFAULT_PASSWORD = true;
+
+// Brute-force Security Rate Limiter (IP -> { failedCount, lockUntil })
+const failedLoginsMap = new Map();
+
+function isIpLocked(ip) {
+  const record = failedLoginsMap.get(ip);
+  if (!record) return false;
+  if (record.lockUntil && Date.now() < record.lockUntil) {
+    return true;
+  }
+  if (record.lockUntil && Date.now() >= record.lockUntil) {
+    failedLoginsMap.delete(ip);
+    return false;
+  }
+  return false;
+}
+
+function recordFailedLogin(ip) {
+  const record = failedLoginsMap.get(ip) || { failedCount: 0, lockUntil: 0 };
+  record.failedCount++;
+  if (record.failedCount >= 5) {
+    record.lockUntil = Date.now() + 15 * 60 * 1000; // 15-minute lock
+  }
+  failedLoginsMap.set(ip, record);
+  return record;
+}
+
+function resetFailedLogins(ip) {
+  failedLoginsMap.delete(ip);
+}
 
 app.use(express.text({ type: '*/*' }));
 app.use((req, res, next) => {
@@ -54,8 +84,6 @@ balancer.setNodes(initialNodes);
 
 // Start background engines
 healthEngine.start(1500);
-inboundManager.startSocks5(1080);
-inboundManager.startHttp(1081);
 clusterEngine.startAutoSync(4000);
 
 let activeTelemetryRange = '15m';
@@ -70,9 +98,28 @@ function generatePassword(length = 16) {
   return pass;
 }
 
+function generateUsername(length = 10) {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let name = 'usr_';
+  const bytes = crypto.randomBytes(length);
+  for (let i = 0; i < length; i++) {
+    name += chars[bytes[i] % chars.length];
+  }
+  return name;
+}
+
+function generateSecretPath(length = 10) {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let secret = 'sec-';
+  const bytes = crypto.randomBytes(length);
+  for (let i = 0; i < length; i++) {
+    secret += chars[bytes[i] % chars.length];
+  }
+  return secret;
+}
+
 // --- SECURITY & DUMMY CAMOUFLAGE MIDDLEWARE ---
 app.use((req, res, next) => {
-  // Allow API login & status without auth blockage
   if (req.path.startsWith('/api') || req.path === '/favicon.ico') {
     return next();
   }
@@ -91,7 +138,6 @@ app.use((req, res, next) => {
     return express.static(path.join(__dirname, '../public'))(req, res, next);
   }
 
-  // Serve Dummy Camouflage 404 Nginx Page for unauthorized requests
   res.status(404).sendFile(path.join(__dirname, '../public/camouflage.html'));
 });
 
@@ -109,13 +155,14 @@ wss.on('connection', (ws) => {
       secretPath: SECRET_PATH,
       adminUsername: ADMIN_USERNAME,
       hasPassword: !!ADMIN_PASSWORD,
-      inboundAuthRequired: INBOUND_AUTH_REQUIRED,
+      isDefaultPassword: IS_DEFAULT_PASSWORD,
+      securityShield: { active: true, rateLimiter: 'active', camouflage: 'active' },
       nodes: balancer.nodes,
       grouped: balancer.getGroupedNodes(),
       stats,
       cluster: clusterEngine.getClusterStatus(),
       presetCountries: PRESET_COUNTRIES,
-      inbounds: { socks5: inboundManager.socksPort, http: inboundManager.httpPort }
+      inbounds: inboundManager.getInbounds()
     }
   }));
 });
@@ -133,11 +180,13 @@ function broadcastState() {
       secretPath: SECRET_PATH,
       adminUsername: ADMIN_USERNAME,
       hasPassword: !!ADMIN_PASSWORD,
-      inboundAuthRequired: INBOUND_AUTH_REQUIRED,
+      isDefaultPassword: IS_DEFAULT_PASSWORD,
+      securityShield: { active: true, rateLimiter: 'active', camouflage: 'active' },
       nodes: balancer.nodes,
       grouped: balancer.getGroupedNodes(),
       stats,
       cluster: clusterEngine.getClusterStatus(),
+      inbounds: inboundManager.getInbounds(),
       overallHistory: healthEngine.getTelemetryForRange(activeTelemetryRange)
     }
   });
@@ -155,6 +204,7 @@ setInterval(broadcastState, 1500);
 
 // GET /api/status
 app.get('/api/status', (req, res) => {
+  const hasSessionCookie = req.headers['cookie'] && req.headers['cookie'].includes('antilag_session=valid');
   const stats = {
     ...balancer.stats,
     activeSocketsCount: balancer.stats.activeSockets.length
@@ -162,63 +212,189 @@ app.get('/api/status', (req, res) => {
 
   res.json({
     success: true,
+    authenticated: !!hasSessionCookie,
     mode: balancer.mode,
     secretPath: SECRET_PATH,
     adminUsername: ADMIN_USERNAME,
     hasPassword: !!ADMIN_PASSWORD,
-    inboundAuthRequired: INBOUND_AUTH_REQUIRED,
+    isDefaultPassword: IS_DEFAULT_PASSWORD,
+    securityShield: { active: true, rateLimiter: 'active', camouflage: 'active' },
     nodeCount: balancer.nodes.length,
     activeOutboundId: balancer.activeOutboundId,
     stats,
     cluster: clusterEngine.getClusterStatus(),
     presetCountries: PRESET_COUNTRIES,
-    inbounds: { socks5: inboundManager.socksPort, http: inboundManager.httpPort }
+    inbounds: inboundManager.getInbounds()
   });
 });
 
-// POST /api/login
+// POST /api/login (With Anti-Bruteforce Rate Limiting)
 app.post('/api/login', (req, res) => {
+  const clientIp = req.ip || req.connection.remoteAddress || '127.0.0.1';
+
+  if (isIpLocked(clientIp)) {
+    return res.status(429).json({
+      success: false,
+      message: 'Превышено количество попыток входа! Доступ заблокирован на 15 минут для защиты.'
+    });
+  }
+
   const { username, password } = req.body || {};
 
-  if (!ADMIN_PASSWORD) {
-    // If no password set, accept automatically
-    res.setHeader('Set-Cookie', 'antilag_auth=true; Path=/; SameSite=Lax');
-    return res.json({ success: true, message: 'Logged in' });
-  }
-
   if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-    res.setHeader('Set-Cookie', 'antilag_auth=true; Path=/; SameSite=Lax');
-    return res.json({ success: true, message: 'Logged in successfully' });
+    resetFailedLogins(clientIp);
+    res.setHeader('Set-Cookie', 'antilag_session=valid; Path=/; SameSite=Lax');
+    return res.json({
+      success: true,
+      message: 'Logged in successfully',
+      isDefaultPassword: IS_DEFAULT_PASSWORD
+    });
   }
 
-  res.status(401).json({ success: false, message: 'Неверный логин или пароль!' });
+  const record = recordFailedLogin(clientIp);
+  const remaining = 5 - record.failedCount;
+
+  if (remaining <= 0) {
+    res.status(429).json({
+      success: false,
+      message: 'Слишком много неверных попыток! IP заблокирован на 15 минут.'
+    });
+  } else {
+    res.status(401).json({
+      success: false,
+      message: `Неверный логин или пароль! Осталось попыток: ${remaining}`
+    });
+  }
 });
 
-// POST /api/settings/auth (Generate or set password & inbound auth)
+// POST /api/logout
+app.post('/api/logout', (req, res) => {
+  res.setHeader('Set-Cookie', 'antilag_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT');
+  res.json({ success: true, message: 'Logged out' });
+});
+
+// GET /api/generate-password
+app.get('/api/generate-password', (req, res) => {
+  const generated = generatePassword(16);
+  res.json({ success: true, password: generated });
+});
+
+// GET /api/generate-username
+app.get('/api/generate-username', (req, res) => {
+  const generated = generateUsername();
+  res.json({ success: true, username: generated });
+});
+
+// GET /api/generate-secret-path
+app.get('/api/generate-secret-path', (req, res) => {
+  const generated = generateSecretPath();
+  res.json({ success: true, secretPath: generated });
+});
+
+// POST /api/check-port
+app.post('/api/check-port', async (req, res) => {
+  const { port } = req.body || {};
+  const portNum = parseInt(port);
+  if (!portNum || portNum < 1 || portNum > 65535) {
+    return res.json({ success: false, available: false, message: 'Недопустимый номер порта' });
+  }
+
+  const available = await isPortAvailable(portNum);
+  res.json({ success: true, port: portNum, available });
+});
+
+// --- INBOUND PROXY MANAGEMENT ENDPOINTS ---
+
+// GET /api/inbounds
+app.get('/api/inbounds', (req, res) => {
+  res.json({ success: true, inbounds: inboundManager.getInbounds() });
+});
+
+// POST /api/inbounds (Add new HTTP or SOCKS5 proxy listener)
+app.post('/api/inbounds', async (req, res) => {
+  const { type, port, username, password, name } = req.body || {};
+
+  if (!['socks5', 'http'].includes((type || '').toLowerCase())) {
+    return res.status(400).json({ success: false, message: 'Тип прокси должен быть SOCKS5 или HTTP' });
+  }
+
+  const portNum = parseInt(port);
+  if (!portNum || portNum < 1 || portNum > 65535) {
+    return res.status(400).json({ success: false, message: 'Некорректный номер порта' });
+  }
+
+  const avail = await isPortAvailable(portNum);
+  if (!avail) {
+    return res.status(400).json({ success: false, message: `Порт ${portNum} уже занят в системе!` });
+  }
+
+  try {
+    const created = await inboundManager.addInbound({
+      type,
+      port: portNum,
+      username,
+      password,
+      name
+    });
+    broadcastState();
+    res.json({ success: true, inbound: created, inbounds: inboundManager.getInbounds() });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+// PUT /api/inbounds/:id (Update inbound proxy settings)
+app.put('/api/inbounds/:id', async (req, res) => {
+  const { id } = req.params;
+  const { type, port, username, password, name } = req.body || {};
+
+  try {
+    const updated = await inboundManager.updateInbound(id, { type, port, username, password, name });
+    broadcastState();
+    res.json({ success: true, inbound: updated, inbounds: inboundManager.getInbounds() });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+// DELETE /api/inbounds/:id
+app.delete('/api/inbounds/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await inboundManager.deleteInbound(id);
+    broadcastState();
+    res.json({ success: true, inbounds: inboundManager.getInbounds() });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+// POST /api/settings/auth (Update admin panel credentials - invalidates current session to force re-login)
 app.post('/api/settings/auth', (req, res) => {
-  const { username, password, action, inboundAuthRequired } = req.body || {};
+  const { username, password, action } = req.body || {};
 
   if (username) ADMIN_USERNAME = username.trim();
 
+  let generatedPassword = '';
   if (action === 'generate') {
-    ADMIN_PASSWORD = generatePassword(16);
-  } else if (password !== undefined) {
+    generatedPassword = generatePassword(16);
+    ADMIN_PASSWORD = generatedPassword;
+    IS_DEFAULT_PASSWORD = false;
+  } else if (password !== undefined && password !== '') {
     ADMIN_PASSWORD = password.trim();
+    IS_DEFAULT_PASSWORD = false;
   }
 
-  if (inboundAuthRequired !== undefined) {
-    INBOUND_AUTH_REQUIRED = !!inboundAuthRequired;
-    inboundManager.setAuth(INBOUND_AUTH_REQUIRED, ADMIN_USERNAME, ADMIN_PASSWORD);
-  }
-
+  // Clear current session cookie to force user to re-login with new credentials!
+  res.setHeader('Set-Cookie', 'antilag_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT');
   broadcastState();
 
   res.json({
     success: true,
+    requireRelogin: true,
     adminUsername: ADMIN_USERNAME,
-    adminPassword: ADMIN_PASSWORD,
     hasPassword: !!ADMIN_PASSWORD,
-    inboundAuthRequired: INBOUND_AUTH_REQUIRED
+    isDefaultPassword: IS_DEFAULT_PASSWORD
   });
 });
 
@@ -324,9 +500,17 @@ app.patch('/api/nodes/:id', (req, res) => {
   res.json({ success: true, node: updatedNode });
 });
 
-// --- CLUSTER SYNC ENDPOINTS ---
+// --- CLUSTER SYNC ENDPOINTS (Authenticated via Panel Username & Password) ---
 app.post('/api/cluster/sync', (req, res) => {
-  const { mode, nodes, countryOrder } = req.body || {};
+  const { username, password, mode, nodes, countryOrder } = req.body || {};
+
+  // Verify authentication with target node's admin credentials
+  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    return res.status(401).json({
+      success: false,
+      message: 'Ошибка авторизации кластера! Неверный логин или пароль администратора целевого сервера.'
+    });
+  }
 
   if (mode) balancer.setMode(mode);
   if (countryOrder && Array.isArray(countryOrder)) balancer.countryOrder = countryOrder;
@@ -346,12 +530,12 @@ app.get('/api/cluster/peers', (req, res) => {
 });
 
 app.post('/api/cluster/peers', (req, res) => {
-  const { peerUrl, secret } = req.body || {};
+  const { peerUrl, username, password } = req.body || {};
   if (!peerUrl) {
-    return res.status(400).json({ success: false, message: 'Peer URL is required' });
+    return res.status(400).json({ success: false, message: 'URL адрес сервера обязателен' });
   }
 
-  const peer = clusterEngine.addPeer(peerUrl, secret);
+  const peer = clusterEngine.addPeer(peerUrl, username, password);
   broadcastState();
 
   res.json({ success: true, peer });
@@ -392,7 +576,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 AntiLag VPN Balancer & Manager running on:`);
   console.log(`👉 Camouflage URL (Dummy Nginx 404): http://localhost:${PORT}`);
   console.log(`👉 Secret Web Panel URL: http://localhost:${PORT}/${SECRET_PATH}/`);
-  console.log(`👉 SOCKS5 Inbound: 0.0.0.0:1080`);
-  console.log(`👉 HTTP Inbound: 0.0.0.0:1081`);
+  console.log(`👉 Security Shield: Active (Brute-Force Rate Limiter & Panel Auth Cluster)`);
   console.log(`====================================================`);
 });
