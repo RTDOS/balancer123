@@ -465,7 +465,7 @@ function renderInboundsConfigCards(inbounds) {
         <label style="font-size:11px; color:#9ca3af;">Динамическая ссылка подключения (Live Connection String):</label>
         <div class="inbound-preview-box">
           <span id="inbPreview_${inb.id}">${liveUrl}</span>
-          <button class="btn btn-secondary btn-sm" onclick="copyProxyString('inbPreview_${inb.id}')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
+          <button class="btn btn-secondary btn-sm" type="button" onclick="copyProxyString('inbPreview_${inb.id}')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
         </div>
       </div>
 
@@ -539,10 +539,29 @@ function generateNewInboundPasswordDirect() {
 }
 
 function copyProxyString(elementId) {
-  const text = document.getElementById(elementId).innerText;
-  navigator.clipboard.writeText(text).then(() => {
-    alert(`Ссылка скопирована: ${text}`);
-  });
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  const text = el.innerText || el.textContent;
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      alert(`Ссылка скопирована: ${text}`);
+    }).catch(() => {
+      fallbackCopyText(text);
+    });
+  } else {
+    fallbackCopyText(text);
+  }
+}
+
+function fallbackCopyText(text) {
+  const temp = document.createElement('textarea');
+  temp.value = text;
+  document.body.appendChild(temp);
+  temp.select();
+  document.execCommand('copy');
+  document.body.removeChild(temp);
+  alert(`Ссылка скопирована: ${text}`);
 }
 
 function saveInboundProxy(id) {
@@ -672,10 +691,13 @@ function submitForceChangePassword() {
     .then(data => {
       if (data.success) {
         document.getElementById('forceChangePassModal').classList.remove('open');
-        alert('Пароль успешно создан! Теперь войдите в панель с вашим новым логином и паролем.');
+        // Auto insert new username and password directly into the login form inputs!
         document.getElementById('loginUsernameInput').value = username;
-        document.getElementById('loginPasswordInput').value = '';
+        document.getElementById('loginPasswordInput').value = password;
         document.getElementById('loginModal').classList.add('open');
+        
+        // Auto-submit login form so Chrome triggers "Save password to Google Chrome"!
+        submitLogin();
       }
     });
 }
@@ -715,10 +737,13 @@ function submitAdminAuth() {
     .then(data => {
       if (data.success) {
         closeAdminAuthModal();
-        alert('Данные доступа успешно сменены! Пожалуйста, войдите в панель с вашим новым логином и паролем.');
+        // Auto insert new username and password directly into the login form inputs!
         document.getElementById('loginUsernameInput').value = username;
-        document.getElementById('loginPasswordInput').value = '';
+        document.getElementById('loginPasswordInput').value = password;
         document.getElementById('loginModal').classList.add('open');
+        
+        // Auto-submit login form so Chrome triggers "Save password to Google Chrome"!
+        submitLogin();
       }
     });
 }
@@ -804,7 +829,8 @@ function submitSecretPath() {
     .then(data => {
       if (data.success) {
         closeSecretSettingsModal();
-        alert(`Секретный путь изменен! Теперь панель доступна по адресу /${data.secretPath}/`);
+        alert(`Секретный путь успешно изменен! Перенаправляем на новое место: /${data.secretPath}/`);
+        window.location.href = `/${data.secretPath}/`;
       }
     });
 }
