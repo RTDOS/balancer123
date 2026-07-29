@@ -383,6 +383,65 @@ function tickSocketUptimes() {
   });
 }
 
+// --- TELEGRAM PROXY EXPORT LOGIC ---
+
+function openTelegramExportModal() {
+  const selectEl = document.getElementById('tgInboundSelect');
+  selectEl.innerHTML = '';
+
+  if (currentInboundsList.length === 0) {
+    selectEl.innerHTML = `<option value="">Нет активных прокси подключений</option>`;
+  } else {
+    currentInboundsList.forEach(inb => {
+      selectEl.innerHTML += `<option value="${inb.id}">${inb.type.toUpperCase()} - ${inb.name} (Port: ${inb.port})</option>`;
+    });
+  }
+
+  const hostInput = document.getElementById('tgServerHostInput');
+  if (!hostInput.value) {
+    hostInput.value = window.location.hostname || 'localhost';
+  }
+
+  updateTelegramProxyPreview();
+  document.getElementById('telegramExportModal').classList.add('open');
+}
+
+function closeTelegramExportModal() {
+  document.getElementById('telegramExportModal').classList.remove('open');
+}
+
+function updateTelegramProxyPreview() {
+  const selectedId = document.getElementById('tgInboundSelect').value;
+  const serverHost = document.getElementById('tgServerHostInput').value.trim() || window.location.hostname || 'localhost';
+
+  const inb = currentInboundsList.find(i => i.id === selectedId) || currentInboundsList[0];
+
+  if (!inb) {
+    document.getElementById('tgProxyLinkPreview').innerText = 'Нет данных';
+    document.getElementById('tgAppProxyLinkPreview').innerText = 'Нет данных';
+    return;
+  }
+
+  const port = inb.port || 1080;
+  const user = inb.username ? encodeURIComponent(inb.username) : '';
+  const pass = inb.password ? encodeURIComponent(inb.password) : '';
+
+  let queryParams = `server=${encodeURIComponent(serverHost)}&port=${port}`;
+  if (user && pass) {
+    queryParams += `&user=${user}&pass=${pass}`;
+  }
+
+  const tmeUrl = `https://t.me/proxy?${queryParams}`;
+  const tgAppUrl = `tg://proxy?${queryParams}`;
+
+  document.getElementById('tgProxyLinkPreview').innerText = tmeUrl;
+  document.getElementById('tgAppProxyLinkPreview').innerText = tgAppUrl;
+}
+
+function copyTelegramProxyLink(elementId) {
+  copyProxyString(elementId);
+}
+
 // --- INTERACTIVE INBOUND PROXY CONFIGURATION LOGIC ---
 
 function openInboundsConfigModal() {

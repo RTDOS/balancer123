@@ -18,7 +18,7 @@
         <div class="logo-icon">⚡</div>
         <div class="brand-text">
           <h1>AntiLag Router</h1>
-          <span class="version-tag">v2.0 Server Grouping & Security Shield</span>
+          <span class="version-tag">v2.4 Telegram Proxy Export</span>
         </div>
       </div>
       <div class="navbar-actions">
@@ -36,6 +36,9 @@
         </button>
         <button class="btn btn-secondary btn-sm" onclick="openSecretSettingsModal()" title="Настройки секретного пути">
           🔒 Путь: <code id="secretPathBadge">/secret/</code>
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="openTelegramExportModal()" title="Экспорт прокси ссылки в Telegram в 1 клик" style="background:rgba(6,182,212,0.15); border-color:rgba(6,182,212,0.4); color:#38bdf8;">
+          ✈️ Экспорт в Telegram
         </button>
         <button class="btn btn-secondary btn-sm" onclick="openExportModal()" title="Экспорт ссылок для клиентов">
           🔗 Подписки
@@ -190,6 +193,52 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <!-- Telegram Proxy Export Modal -->
+  <div class="modal-overlay" id="telegramExportModal">
+    <div class="modal-card" style="max-width:580px;">
+      <div class="modal-header">
+        <h2>✈️ Экспорт прокси для Telegram</h2>
+        <button class="close-btn" onclick="closeTelegramExportModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">
+          Выберите созданный SOCKS5 прокси. Ссылка <code>https://t.me/proxy?...</code> позволяет подключить ваш AntiLag балансировщик в Telegram в 1 клик!
+        </p>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label>Выберите прокси порт подключения</label>
+          <select id="tgInboundSelect" class="form-input" onchange="updateTelegramProxyPreview()">
+            <!-- Dynamic Dropdown Options in JS -->
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label>Внешний IP адрес или домен вашего сервера</label>
+          <input type="text" id="tgServerHostInput" class="form-input" placeholder="например: 2.26.81.50 или my-vpn.net" oninput="updateTelegramProxyPreview()">
+        </div>
+
+        <div class="form-group" style="margin-top:14px;">
+          <label style="color:#06b6d4;">Официальная 1-click ссылка Telegram (t.me/proxy):</label>
+          <div class="inbound-preview-box">
+            <span id="tgProxyLinkPreview">https://t.me/proxy?...</span>
+            <button class="btn btn-secondary btn-sm" onclick="copyTelegramProxyLink('tgProxyLinkPreview')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:10px;">
+          <label style="color:#a5b4fc;">Прямая ссылка приложения (tg://proxy):</label>
+          <div class="inbound-preview-box">
+            <span id="tgAppProxyLinkPreview">tg://proxy?...</span>
+            <button class="btn btn-secondary btn-sm" onclick="copyTelegramProxyLink('tgAppProxyLinkPreview')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeTelegramExportModal()">Закрыть</button>
+      </div>
+    </div>
   </div>
 
   <!-- Interactive HTTP & SOCKS Inbound Proxy Configuration Modal -->
