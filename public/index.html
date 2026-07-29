@@ -18,7 +18,7 @@
         <div class="logo-icon">⚡</div>
         <div class="brand-text">
           <h1>AntiLag Router</h1>
-          <span class="version-tag">v1.4 Production Core</span>
+          <span class="version-tag">v1.5 Password & Proxy Auth Core</span>
         </div>
       </div>
       <div class="navbar-actions">
@@ -26,6 +26,9 @@
           <span class="dot active"></span>
           SOCKS5: <strong id="socksPort">1080</strong> | HTTP: <strong id="httpPort">1081</strong>
         </div>
+        <button class="btn btn-secondary btn-sm" onclick="openAuthModal()" title="Безопасность и пароли">
+          🔐 Пароль & Доступ
+        </button>
         <button class="btn btn-secondary btn-sm" onclick="openSecretSettingsModal()" title="Настройки секретного пути">
           🔒 Путь: <code id="secretPathBadge">/secret/</code>
         </button>
@@ -176,6 +179,66 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <!-- Security & Password Generator Modal -->
+  <div class="modal-overlay" id="authModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>🔐 Пароль и безопасность доступа</h2>
+        <button class="close-btn" onclick="closeAuthModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">
+          Сгенерируйте надежный пароль для защиты веб-панели и входящих SOCKS5/HTTP прокси портов:
+        </p>
+        <div class="form-group" style="margin-top:12px;">
+          <label>Логин администратора (Username)</label>
+          <input type="text" id="authUsernameInput" class="form-input" placeholder="admin">
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label>Пароль (Password)</label>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="authPasswordInput" class="form-input" placeholder="Введите пароль или сгенерируйте" style="font-family:'JetBrains Mono', monospace;">
+            <button class="btn btn-secondary" onclick="generateRandomPassword()" style="white-space:nowrap;">🎲 Сгенерировать</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:16px; display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" id="inboundAuthCheckbox" style="width:18px; height:18px; cursor:pointer;">
+          <label for="inboundAuthCheckbox" style="margin:0; cursor:pointer; font-weight:600; color:var(--text-main);">
+            Защитить SOCKS5 (1080) и HTTP (1081) этим же логином и паролем
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeAuthModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="submitAuthSettings()">Сохранить настройки</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Login Modal -->
+  <div class="modal-overlay" id="loginModal">
+    <div class="modal-card" style="max-width:400px;">
+      <div class="modal-header">
+        <h2>🔐 Авторизация AntiLag Router</h2>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Логин</label>
+          <input type="text" id="loginUsernameInput" class="form-input" placeholder="admin">
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label>Пароль</label>
+          <input type="password" id="loginPasswordInput" class="form-input" placeholder="Пароль">
+        </div>
+        <div id="loginErrorMsg" style="color:var(--neon-red); font-size:12px; margin-top:8px; display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="submitLogin()" style="width:100%;">Войти в панель</button>
+      </div>
+    </div>
   </div>
 
   <!-- Mode Info Modal -->

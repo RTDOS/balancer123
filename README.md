@@ -1,12 +1,21 @@
 # AntiLag VPN Balancer & Manager (Production VPS Deploy Guide)
 
-Высокопроизводительный серверный балансировщик VPN/Proxy подключений с анти-лаг системой (Gaming/Web Mode), защитной камуфляжной заглушкой (Nginx 404), секретным путем доступа и P2P-кластеризацией для 2-3 серверов.
+Высокопроизводительный серверный балансировщик VPN/Proxy подключений с анти-лаг системой (Gaming/Web Mode), защитной камуфляжной заглушкой (Nginx 404), генератором паролей администратора, защитой инбаундов авторизацией и P2P-кластеризацией для 2-3 серверов.
 
 ---
 
-## 🐙 Инструкция по загрузке в закрытый (Private) репозиторий GitHub
+## 🔒 Безопасность и пароли (v1.5)
 
-Выполните следующие команды в папке проекта:
+1. **Генератор паролей в 1 клик**:
+   - В шапке панели кнопка **`🔐 Пароль & Доступ`** позволяет в 1 клик сгенерировать устойчивый 16-значный криптографический пароль.
+2. **Защита SOCKS5 и HTTP прокси портов (1080 и 1081)**:
+   - Включаемая галочка «Защитить SOCKS5 и HTTP прокси логином и паролем» закрывает сторонний доступ к порту прокси сервера (требует SOCKS5 User/Pass auth и HTTP 407 Proxy-Authorization).
+3. **Заглушка для сканеров (Nginx 404)**:
+   - При визите коренного URL `/` выдается полноценная камуфляжная страница 404 Nginx. Панель доступна только по секретному пути `/secret/`.
+
+---
+
+## 🐙 Загрузка в закрытый (Private) репозиторий GitHub
 
 ```bash
 # 1. Инициализация Git репозитория
@@ -14,7 +23,7 @@ git init
 
 # 2. Добавление всех файлов
 git add .
-git commit -m "Initial commit of AntiLag VPN Balancer v1.4"
+git commit -m "AntiLag VPN Balancer v1.5 release"
 
 # 3. Привязка вашего закрытого репозитория GitHub
 git remote add origin git@github.com:YOUR_USERNAME/YOUR_PRIVATE_REPO.git
@@ -24,16 +33,14 @@ git push -u origin main
 
 ---
 
-## 🚀 Варианты развертывания на Linux VPS сервере
+## 🚀 Развертывание на Linux VPS сервере
 
-### Вариант 1: Автоматический запуск через Docker / Docker Compose (Рекомендуемый)
+### Вариант 1: Запуск через Docker Compose (Рекомендуемый)
 
 ```bash
-# Клонирование из закрытого репозитория
 git clone https://github.com/YOUR_USERNAME/YOUR_PRIVATE_REPO.git /var/www/projectbalance
 cd /var/www/projectbalance
 
-# Запуск контейнера в фоновом режиме
 docker compose up -d --build
 ```
 
@@ -43,24 +50,15 @@ docker compose up -d --build
 git clone https://github.com/YOUR_USERNAME/YOUR_PRIVATE_REPO.git /var/www/projectbalance
 cd /var/www/projectbalance
 
-# Запуск автоинсталлятора
 chmod +x deploy.sh
 ./deploy.sh
 ```
 
 ---
 
-## 🔒 Доступ и порты
+## 🌐 Доступ и порты
 
-- 🎭 **Заглушка для сканеров (Nginx 404)**: `http://YOUR_SERVER_IP:8080/`
+- 🎭 **Заглушка (Nginx 404)**: `http://YOUR_SERVER_IP:8080/`
 - 🗝️ **Секретная веб-панель**: `http://YOUR_SERVER_IP:8080/secret/`
-- 🔀 **SOCKS5 Инбаунд**: `YOUR_SERVER_IP:1080`
-- 🌐 **HTTP Инбаунд**: `YOUR_SERVER_IP:1081`
-
----
-
-## ⚡ Особенности версии 1.4:
-1. **Gaming Mode (Защита от вылетов из CS2, Valorant, Dota 2)**: Удерживает IP до последнего при мелких лагах.
-2. **Web Fast Switch Mode**: Переключает трафик за ~50 мс при появлении джиттера.
-3. **Nginx 404 Camouflage**: При вызове `/` маскируется под 404 Nginx server.
-4. **HA Mesh Cluster**: Возможность связать 2–3 сервера для взаимного дублирования и P2P-синхронизации базы VPN.
+- 🔀 **SOCKS5 Инбаунд**: `YOUR_SERVER_IP:1080` (с поддержкой Auth)
+- 🌐 **HTTP Инбаунд**: `YOUR_SERVER_IP:1081` (с поддержкой Auth)

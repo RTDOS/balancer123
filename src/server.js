@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const fs = require('fs');
+const crypto = require('crypto');
 const WebSocket = require('ws');
 
 const AntiLagBalancer = require('./balancer');
@@ -14,8 +14,11 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Configurable Secret Path & Security Token
-let SECRET_PATH = 'secret'; // Visit /secret/ or ?secret=123 to access Web Panel
+// Security & Authentication Configuration
+let SECRET_PATH = 'secret';
+let ADMIN_USERNAME = 'admin';
+let ADMIN_PASSWORD = ''; // Empty by default (no pass required until set/generated)
+let INBOUND_AUTH_REQUIRED = false;
 
 app.use(express.text({ type: '*/*' }));
 app.use((req, res, next) => {
@@ -57,8 +60,19 @@ clusterEngine.startAutoSync(4000);
 
 let activeTelemetryRange = '15m';
 
+function generatePassword(length = 16) {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=';
+  let pass = '';
+  const bytes = crypto.randomBytes(length);
+  for (let i = 0; i < length; i++) {
+    pass += chars[bytes[i] % chars.length];
+  }
+  return pass;
+}
+
 // --- SECURITY & DUMMY CAMOUFLAGE MIDDLEWARE ---
 app.use((req, res, next) => {
+  // Allow API login & status without auth blockage
   if (req.path.startsWith('/api') || req.path === '/favicon.ico') {
     return next();
   }
@@ -70,12 +84,10 @@ app.use((req, res, next) => {
   if (isSecretPath || querySecret === SECRET_PATH || querySecret === '123' || hasAuthCookie) {
     res.setHeader('Set-Cookie', 'antilag_auth=true; Path=/; SameSite=Lax');
     
-    // If requesting root secret path, return index.html
     if (req.path === `/${SECRET_PATH}` || req.path === `/${SECRET_PATH}/` || req.path === '/') {
       return res.sendFile(path.join(__dirname, '../public/index.html'));
     }
 
-    // Serve static files (style.css, app.js, fonts, icons)
     return express.static(path.join(__dirname, '../public'))(req, res, next);
   }
 
@@ -95,6 +107,9 @@ wss.on('connection', (ws) => {
     data: {
       mode: balancer.mode,
       secretPath: SECRET_PATH,
+      adminUsername: ADMIN_USERNAME,
+      hasPassword: !!ADMIN_PASSWORD,
+      inboundAuthRequired: INBOUND_AUTH_REQUIRED,
       nodes: balancer.nodes,
       grouped: balancer.getGroupedNodes(),
       stats,
@@ -116,6 +131,9 @@ function broadcastState() {
     data: {
       mode: balancer.mode,
       secretPath: SECRET_PATH,
+      adminUsername: ADMIN_USERNAME,
+      hasPassword: !!ADMIN_PASSWORD,
+      inboundAuthRequired: INBOUND_AUTH_REQUIRED,
       nodes: balancer.nodes,
       grouped: balancer.getGroupedNodes(),
       stats,
@@ -146,12 +164,61 @@ app.get('/api/status', (req, res) => {
     success: true,
     mode: balancer.mode,
     secretPath: SECRET_PATH,
+    adminUsername: ADMIN_USERNAME,
+    hasPassword: !!ADMIN_PASSWORD,
+    inboundAuthRequired: INBOUND_AUTH_REQUIRED,
     nodeCount: balancer.nodes.length,
     activeOutboundId: balancer.activeOutboundId,
     stats,
     cluster: clusterEngine.getClusterStatus(),
     presetCountries: PRESET_COUNTRIES,
     inbounds: { socks5: inboundManager.socksPort, http: inboundManager.httpPort }
+  });
+});
+
+// POST /api/login
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body || {};
+
+  if (!ADMIN_PASSWORD) {
+    // If no password set, accept automatically
+    res.setHeader('Set-Cookie', 'antilag_auth=true; Path=/; SameSite=Lax');
+    return res.json({ success: true, message: 'Logged in' });
+  }
+
+  if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+    res.setHeader('Set-Cookie', 'antilag_auth=true; Path=/; SameSite=Lax');
+    return res.json({ success: true, message: 'Logged in successfully' });
+  }
+
+  res.status(401).json({ success: false, message: 'Неверный логин или пароль!' });
+});
+
+// POST /api/settings/auth (Generate or set password & inbound auth)
+app.post('/api/settings/auth', (req, res) => {
+  const { username, password, action, inboundAuthRequired } = req.body || {};
+
+  if (username) ADMIN_USERNAME = username.trim();
+
+  if (action === 'generate') {
+    ADMIN_PASSWORD = generatePassword(16);
+  } else if (password !== undefined) {
+    ADMIN_PASSWORD = password.trim();
+  }
+
+  if (inboundAuthRequired !== undefined) {
+    INBOUND_AUTH_REQUIRED = !!inboundAuthRequired;
+    inboundManager.setAuth(INBOUND_AUTH_REQUIRED, ADMIN_USERNAME, ADMIN_PASSWORD);
+  }
+
+  broadcastState();
+
+  res.json({
+    success: true,
+    adminUsername: ADMIN_USERNAME,
+    adminPassword: ADMIN_PASSWORD,
+    hasPassword: !!ADMIN_PASSWORD,
+    inboundAuthRequired: INBOUND_AUTH_REQUIRED
   });
 });
 
@@ -258,8 +325,6 @@ app.patch('/api/nodes/:id', (req, res) => {
 });
 
 // --- CLUSTER SYNC ENDPOINTS ---
-
-// POST /api/cluster/sync (Received from peer server)
 app.post('/api/cluster/sync', (req, res) => {
   const { mode, nodes, countryOrder } = req.body || {};
 
@@ -276,12 +341,10 @@ app.post('/api/cluster/sync', (req, res) => {
   });
 });
 
-// GET /api/cluster/peers
 app.get('/api/cluster/peers', (req, res) => {
   res.json({ success: true, cluster: clusterEngine.getClusterStatus() });
 });
 
-// POST /api/cluster/peers
 app.post('/api/cluster/peers', (req, res) => {
   const { peerUrl, secret } = req.body || {};
   if (!peerUrl) {
@@ -294,7 +357,6 @@ app.post('/api/cluster/peers', (req, res) => {
   res.json({ success: true, peer });
 });
 
-// DELETE /api/cluster/peers/:id
 app.delete('/api/cluster/peers/:id', (req, res) => {
   clusterEngine.removePeer(req.params.id);
   broadcastState();
@@ -330,7 +392,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 AntiLag VPN Balancer & Manager running on:`);
   console.log(`👉 Camouflage URL (Dummy Nginx 404): http://localhost:${PORT}`);
   console.log(`👉 Secret Web Panel URL: http://localhost:${PORT}/${SECRET_PATH}/`);
-  console.log(`👉 SOCKS5 Inbound: 127.0.0.1:1080`);
-  console.log(`👉 HTTP Inbound: 127.0.0.1:1081`);
+  console.log(`👉 SOCKS5 Inbound: 0.0.0.0:1080`);
+  console.log(`👉 HTTP Inbound: 0.0.0.0:1081`);
   console.log(`====================================================`);
 });

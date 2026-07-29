@@ -3,6 +3,8 @@ let telemetryChart = null;
 let currentNodesMap = new Map();
 let currentGroupedCountries = [];
 let activeTelemetryRange = '15m';
+let hasAdminPassword = false;
+let currentAdminUsername = 'admin';
 
 document.addEventListener('DOMContentLoaded', () => {
   initChart();
@@ -91,6 +93,8 @@ function fetchInitialStatus() {
         if (data.secretPath) {
           document.getElementById('secretPathBadge').innerText = `/${data.secretPath}/`;
         }
+        hasAdminPassword = !!data.hasPassword;
+        currentAdminUsername = data.adminUsername || 'admin';
         updateModeUI(data.mode);
       }
     });
@@ -103,13 +107,15 @@ function renderState(data) {
     document.getElementById('secretPathBadge').innerText = `/${data.secretPath}/`;
   }
 
+  hasAdminPassword = !!data.hasPassword;
+  currentAdminUsername = data.adminUsername || 'admin';
+
   const nodes = data.nodes || [];
   document.getElementById('nodeCount').innerText = nodes.length;
   document.getElementById('preventedLags').innerText = data.stats.microLagPreventedCount || 0;
   document.getElementById('totalConnections').innerText = data.stats.totalRoutedConnections || 0;
   document.getElementById('activeSocketsCount').innerText = data.stats.activeSocketsCount || (data.stats.activeSockets ? data.stats.activeSockets.length : 0);
 
-  // Cache nodes and country groups
   currentNodesMap.clear();
   nodes.forEach(n => currentNodesMap.set(n.id, n));
   currentGroupedCountries = data.grouped || [];
@@ -336,6 +342,69 @@ function tickSocketUptimes() {
       el.innerText = formatDuration(Date.now() - startMs);
     }
   });
+}
+
+function openAuthModal() {
+  document.getElementById('authUsernameInput').value = currentAdminUsername;
+  document.getElementById('authPasswordInput').value = '';
+  document.getElementById('authModal').classList.add('open');
+}
+
+function closeAuthModal() {
+  document.getElementById('authModal').classList.remove('open');
+}
+
+function generateRandomPassword() {
+  fetch('/api/settings/auth', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'generate' })
+  }).then(res => res.json())
+    .then(data => {
+      if (data.success && data.adminPassword) {
+        document.getElementById('authPasswordInput').value = data.adminPassword;
+        alert(`Сгенерирован новый пароль: ${data.adminPassword}\nСохраните его!`);
+      }
+    });
+}
+
+function submitAuthSettings() {
+  const username = document.getElementById('authUsernameInput').value;
+  const password = document.getElementById('authPasswordInput').value;
+  const inboundAuthRequired = document.getElementById('inboundAuthCheckbox').checked;
+
+  fetch('/api/settings/auth', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, inboundAuthRequired })
+  }).then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        closeAuthModal();
+        alert('Настройки безопасности успешно обновлены!');
+      }
+    });
+}
+
+function submitLogin() {
+  const username = document.getElementById('loginUsernameInput').value;
+  const password = document.getElementById('loginPasswordInput').value;
+  const errorEl = document.getElementById('loginErrorMsg');
+
+  fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  }).then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        document.getElementById('loginModal').classList.remove('open');
+        window.location.reload();
+      } else {
+        errorEl.innerText = data.message || 'Ошибка авторизации';
+        errorEl.style.display = 'block';
+      }
+    });
 }
 
 function openImportModal() {
