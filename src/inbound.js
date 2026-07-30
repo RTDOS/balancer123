@@ -101,6 +101,14 @@ class InboundProxyManager {
       item.server = this.createHttpServer(item);
     }
 
+    item.server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`⚠️ [Inbound Warning] Port ${portNum} is already in use by another application. Skipping...`);
+      } else {
+        console.error(`⚠️ [Inbound Error] ${err.message}`);
+      }
+    });
+
     item.server.listen(portNum, '0.0.0.0', () => {
       console.log(`[Inbound ${item.type.toUpperCase()}] Listening on 0.0.0.0:${portNum}`);
       openFirewallPort(portNum);

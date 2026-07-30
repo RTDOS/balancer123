@@ -83,7 +83,12 @@ echo -e "2) ${YELLOW}🔒 Сверхзащищенный SSH-Туннель (127
 echo -e "   Панель слушает исключительно локальный адрес и НЕВИДИМА для сканеров."
 echo -e "   Подключение происходит через SSH-туннель: ssh -L 8080:127.0.0.1:8080 root@${PUBLIC_IP}\n"
 
-read -p "Введите номер режима [1 или 2] (По умолчанию 1): " BIND_CHOICE
+# Force input reading from TTY so pipe execution (curl | bash) waits for user choice!
+if [ -t 0 ]; then
+  read -p "Введите номер режима [1 или 2] (По умолчанию 1): " BIND_CHOICE
+else
+  read -p "Введите номер режима [1 или 2] (По умолчанию 1): " BIND_CHOICE < /dev/tty || BIND_CHOICE="1"
+fi
 
 if [ "$BIND_CHOICE" = "2" ]; then
   BIND_HOST="127.0.0.1"
@@ -118,7 +123,7 @@ HOST=${BIND_HOST}
 EOF
 
 echo -e "${YELLOW}⚙️ Установка npm пакетов...${NC}"
-npm install --production --silent &> /dev/null || npm install --silent
+npm install --production
 
 echo -e "\n${YELLOW}⚙️ [4/5] Настройка системной службы Systemd & Фаервола...${NC}"
 
@@ -187,10 +192,20 @@ show_menu() {
   echo -e "6) 🛑 Остановить службу"
   echo -e "0) Выход\n"
 
-  read -p "Выберите действие [0-6]: " choice
+  if [ -t 0 ]; then
+    read -p "Выберите действие [0-6]: " choice
+  else
+    read -p "Выберите действие [0-6]: " choice < /dev/tty
+  fi
+
   case $choice in
     1)
       systemctl status antilag --no-pager
+      if ! systemctl is-active --quiet antilag; then
+        echo -e "\n${RED}⚠️ Ошибка запуска службы! Чтение последних логов:${NC}"
+        journalctl -u antilag -n 15 --no-pager
+      fi
+
       echo -e "\n${GREEN}👉 Ссылка на веб-панель:${NC}"
       if [ "$HOST_VAL" = "127.0.0.1" ]; then
         echo -e "🔒 Режим SSH Туннеля: http://localhost:8080/secret/"
