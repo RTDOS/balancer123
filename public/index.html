@@ -302,9 +302,10 @@
       <div class="modal-body">
         <div class="form-group">
           <label>Тип протокола</label>
-          <select id="newInboundType" class="form-input">
-            <option value="socks5">SOCKS5 Прокси</option>
-            <option value="http">HTTP Прокси</option>
+          <select id="newInboundType" class="form-input" onchange="onInboundTypeChange()">
+            <option value="socks5">SOCKS5 Прокси (Telegram / ПК / Браузеры)</option>
+            <option value="http">HTTP Прокси (Системный прокси)</option>
+            <option value="vless">⚡ VLESS Прокси (Happ / Hiddify / v2rayN / Shadowrocket)</option>
           </select>
         </div>
         <div class="form-group" style="margin-top:12px;">

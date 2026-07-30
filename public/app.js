@@ -578,6 +578,8 @@ function renderInboundsConfigCards(inbounds) {
           <select id="inbType_${inb.id}" class="form-input" onchange="updateInboundPreview('${inb.id}')">
             <option value="socks5" ${initialType === 'socks5' ? 'selected' : ''}>SOCKS5</option>
             <option value="http" ${initialType === 'http' ? 'selected' : ''}>HTTP</option>
+            <option value="vless" ${initialType === 'vless' ? 'selected' : ''}>⚡ VLESS</option>
+            <option value="tuic" ${initialType === 'tuic' ? 'selected' : ''}>🚀 TUIC v5</option>
           </select>
         </div>
         <div style="flex:1;">
@@ -588,16 +590,16 @@ function renderInboundsConfigCards(inbounds) {
 
       <div class="form-row" style="display:flex; gap:10px;">
         <div style="flex:1;">
-          <label style="font-size:12px;">Логин (Username)</label>
+          <label style="font-size:12px;" id="inbUserLabel_${inb.id}">${initialType === 'vless' || initialType === 'tuic' ? 'UUID Клиента' : 'Логин (Username)'}</label>
           <div style="display:flex; gap:6px;">
-            <input type="text" id="inbUser_${inb.id}" class="form-input" value="${initialUser}" placeholder="без пароля" oninput="updateInboundPreview('${inb.id}')">
-            <button class="btn btn-secondary btn-sm" type="button" onclick="generateInboundUserDirect('${inb.id}')" title="Сгенерировать логин">🎲</button>
+            <input type="text" id="inbUser_${inb.id}" class="form-input" value="${initialUser}" placeholder="${initialType === 'vless' || initialType === 'tuic' ? '93a8b412-402a-4361-8255-7389ef121111' : 'без пароля'}" oninput="updateInboundPreview('${inb.id}')">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="generateInboundUserDirect('${inb.id}')" title="Сгенерировать">🎲</button>
           </div>
         </div>
-        <div style="flex:1;">
-          <label style="font-size:12px;">Пароль (Password)</label>
+        <div style="flex:1;" id="inbPassGroup_${inb.id}">
+          <label style="font-size:12px;">${initialType === 'tuic' ? 'Пароль TUIC' : 'Пароль (Password)'}</label>
           <div style="display:flex; gap:6px;">
-            <input type="text" id="inbPass_${inb.id}" class="form-input" value="${initialPass}" placeholder="без пароля" style="font-family:'JetBrains Mono', monospace;" oninput="updateInboundPreview('${inb.id}')">
+            <input type="text" id="inbPass_${inb.id}" class="form-input" value="${initialPass}" placeholder="${initialType === 'vless' ? 'не требуется для VLESS' : 'без пароля'}" ${initialType === 'vless' ? 'disabled' : ''} style="font-family:'JetBrains Mono', monospace;" oninput="updateInboundPreview('${inb.id}')">
             <button class="btn btn-secondary btn-sm" type="button" onclick="generateInboundPassDirect('${inb.id}')" title="Сгенерировать пароль">🎲</button>
           </div>
         </div>
@@ -628,8 +630,40 @@ function updateInboundPreview(id) {
   const user = document.getElementById(`inbUser_${id}`).value.trim();
   const pass = document.getElementById(`inbPass_${id}`).value.trim();
 
-  const authPart = (user && pass) ? `${user}:${pass}@` : '';
-  const liveUrl = `${type}://${authPart}${host}:${port}`;
+  const userLabel = document.getElementById(`inbUserLabel_${id}`);
+  const passGroup = document.getElementById(`inbPassGroup_${id}`);
+  const passInput = document.getElementById(`inbPass_${id}`);
+
+  let liveUrl = '';
+  if (type === 'vless') {
+    if (userLabel) userLabel.innerText = 'UUID Клиента';
+    if (passGroup) passGroup.style.opacity = '0.4';
+    if (passInput) {
+      passInput.placeholder = 'не требуется для VLESS';
+      passInput.disabled = true;
+    }
+    const uuid = user || '93a8b412-402a-4361-8255-7389ef121111';
+    liveUrl = `vless://${uuid}@${host}:${port}?type=tcp#AntiLag_VLESS_${port}`;
+  } else if (type === 'tuic') {
+    if (userLabel) userLabel.innerText = 'UUID Клиента';
+    if (passGroup) passGroup.style.opacity = '1.0';
+    if (passInput) {
+      passInput.placeholder = 'Пароль TUIC';
+      passInput.disabled = false;
+    }
+    const uuid = user || '93a8b412-402a-4361-8255-7389ef121111';
+    const tuicPass = pass || 'tuicpass123';
+    liveUrl = `tuic://${uuid}:${tuicPass}@${host}:${port}?congestion_control=bbr&alpn=h3#AntiLag_TUIC_${port}`;
+  } else {
+    if (userLabel) userLabel.innerText = 'Логин (Username)';
+    if (passGroup) passGroup.style.opacity = '1.0';
+    if (passInput) {
+      passInput.placeholder = 'без пароля';
+      passInput.disabled = false;
+    }
+    const authPart = (user && pass) ? `${user}:${pass}@` : '';
+    liveUrl = `${type}://${authPart}${host}:${port}`;
+  }
 
   const previewEl = document.getElementById(`inbPreview_${id}`);
   if (previewEl) {
@@ -638,15 +672,30 @@ function updateInboundPreview(id) {
 }
 
 function generateInboundUserDirect(id) {
-  fetch('/api/generate-username')
-    .then(res => res.json())
-    .then(data => {
-      if (data.success && data.username) {
-        const userInput = document.getElementById(`inbUser_${id}`);
-        userInput.value = data.username;
-        updateInboundPreview(id);
-      }
-    });
+  const typeEl = document.getElementById(`inbType_${id}`);
+  const type = typeEl ? typeEl.value : 'socks5';
+
+  if (type === 'vless' || type === 'tuic') {
+    fetch('/api/generate-uuid')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.uuid) {
+          const userInput = document.getElementById(`inbUser_${id}`);
+          userInput.value = data.uuid;
+          updateInboundPreview(id);
+        }
+      });
+  } else {
+    fetch('/api/generate-username')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.username) {
+          const userInput = document.getElementById(`inbUser_${id}`);
+          userInput.value = data.username;
+          updateInboundPreview(id);
+        }
+      });
+  }
 }
 
 function generateInboundPassDirect(id) {
@@ -662,13 +711,26 @@ function generateInboundPassDirect(id) {
 }
 
 function generateNewInboundUsernameDirect() {
-  fetch('/api/generate-username')
-    .then(res => res.json())
-    .then(data => {
-      if (data.success && data.username) {
-        document.getElementById('newInboundUser').value = data.username;
-      }
-    });
+  const typeEl = document.getElementById('newInboundType');
+  const type = typeEl ? typeEl.value : 'socks5';
+
+  if (type === 'vless' || type === 'tuic') {
+    fetch('/api/generate-uuid')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.uuid) {
+          document.getElementById('newInboundUser').value = data.uuid;
+        }
+      });
+  } else {
+    fetch('/api/generate-username')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.username) {
+          document.getElementById('newInboundUser').value = data.username;
+        }
+      });
+  }
 }
 
 function generateNewInboundPasswordDirect() {

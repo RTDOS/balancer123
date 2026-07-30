@@ -327,6 +327,16 @@ app.get('/api/generate-username', (req, res) => {
   res.json({ success: true, username: generated });
 });
 
+// GET /api/generate-uuid
+app.get('/api/generate-uuid', (req, res) => {
+  const generated = crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+  res.json({ success: true, uuid: generated });
+});
+
 // GET /api/generate-secret-path
 app.get('/api/generate-secret-path', (req, res) => {
   const generated = generateSecretPath();
@@ -356,8 +366,8 @@ app.get('/api/inbounds', (req, res) => {
 app.post('/api/inbounds', async (req, res) => {
   const { type, port, username, password, name } = req.body || {};
 
-  if (!['socks5', 'http'].includes((type || '').toLowerCase())) {
-    return res.status(400).json({ success: false, message: 'Тип прокси должен быть SOCKS5 или HTTP' });
+  if (!['socks5', 'http', 'vless', 'tuic'].includes((type || '').toLowerCase())) {
+    return res.status(400).json({ success: false, message: 'Тип прокси должен быть SOCKS5, HTTP, VLESS или TUIC' });
   }
 
   const portNum = parseInt(port);

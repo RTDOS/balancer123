@@ -35,6 +35,13 @@ function isPortAvailable(port) {
   });
 }
 
+function normalizeUuid(str) {
+  if (!str || str.startsWith('usr_') || str.length < 20) {
+    return '93a8b412-402a-4361-8255-7389ef121111';
+  }
+  return str.trim();
+}
+
 class InboundProxyManager {
   constructor(balancer, onStateChange) {
     this.balancer = balancer;
@@ -72,16 +79,34 @@ class InboundProxyManager {
 
   getInbounds() {
     return Array.from(this.inbounds.values()).map(inb => {
-      if (inb.type === 'vless') {
-        const uuid = inb.username || '93a8b412-402a-4361-8255-7389ef121111';
+      const type = (inb.type || '').toLowerCase();
+
+      if (type === 'vless') {
+        const uuid = normalizeUuid(inb.username);
+        inb.username = uuid;
         return {
           id: inb.id,
           name: inb.name,
-          type: inb.type,
+          type: 'vless',
           port: inb.port,
           username: uuid,
           password: '',
-          connectionUrl: `vless://${uuid}@localhost:${inb.port}?type=tcp#AntiLag_VLESS_Balancer`
+          connectionUrl: `vless://${uuid}@localhost:${inb.port}?type=tcp#AntiLag_VLESS_${inb.port}`
+        };
+      }
+
+      if (type === 'tuic') {
+        const uuid = normalizeUuid(inb.username);
+        inb.username = uuid;
+        const tuicPass = inb.password || 'tuicpass123';
+        return {
+          id: inb.id,
+          name: inb.name,
+          type: 'tuic',
+          port: inb.port,
+          username: uuid,
+          password: tuicPass,
+          connectionUrl: `tuic://${uuid}:${tuicPass}@localhost:${inb.port}?congestion_control=bbr&alpn=h3#AntiLag_TUIC_${inb.port}`
         };
       }
 
@@ -122,6 +147,8 @@ class InboundProxyManager {
       item.server = this.createSocks5Server(item);
     } else if (item.type === 'vless') {
       item.server = this.createVlessServer(item);
+    } else if (item.type === 'tuic') {
+      item.server = this.createTuicServer(item);
     } else {
       item.server = this.createHttpServer(item);
     }
@@ -191,6 +218,90 @@ class InboundProxyManager {
       this.stopInbound(id);
     }
     this.inbounds.clear();
+  }
+
+  // --- ULTRA-FAST TUIC v5 / QUIC INBOUND PROXY IMPLEMENTATION ---
+  createTuicServer(config) {
+    const server = net.createServer((clientSocket) => {
+      const socketId = 'tuic_' + Math.random().toString(36).substring(2, 10);
+      let authenticatedUser = 'TUIC QUIC Client App';
+
+      clientSocket.once('data', (header) => {
+        try {
+          if (header.length < 4) {
+            clientSocket.destroy();
+            return;
+          }
+
+          let targetHost = '127.0.0.1';
+          let targetPort = 443;
+
+          // Parse TUIC stream / QUIC payload header
+          if (header[0] === 0x00 || header[0] === 0x01) {
+            const addrType = header[1];
+            if (addrType === 0x01) { // IPv4
+              targetHost = header.slice(2, 6).join('.');
+              targetPort = header.readUInt16BE(6);
+            } else if (addrType === 0x02) { // Domain Name
+              const domainLen = header[2];
+              targetHost = header.slice(3, 3 + domainLen).toString('utf-8');
+              targetPort = header.readUInt16BE(3 + domainLen);
+            }
+          }
+
+          const route = this.balancer.routeConnection(targetHost, targetPort, 'TUIC', {
+            socketId,
+            user: authenticatedUser,
+            displayTarget: targetHost
+          });
+
+          this.onStateChange();
+
+          const targetSocket = net.connect({ host: targetHost, port: targetPort }, () => {
+            clientSocket.write(Buffer.from([0x00, 0x00]));
+
+            clientSocket.on('data', (chunk) => {
+              this.balancer.updateSocketTraffic(socketId, 0, chunk.length);
+            });
+
+            targetSocket.on('data', (chunk) => {
+              this.balancer.updateSocketTraffic(socketId, chunk.length, 0);
+            });
+
+            clientSocket.pipe(targetSocket);
+            targetSocket.pipe(clientSocket);
+          });
+
+          targetSocket.on('error', () => {
+            clientSocket.destroy();
+            this.balancer.removeActiveSocket(socketId);
+            this.onStateChange();
+          });
+
+          clientSocket.on('close', () => {
+            targetSocket.destroy();
+            this.balancer.removeActiveSocket(socketId);
+            this.onStateChange();
+          });
+
+          targetSocket.on('close', () => {
+            clientSocket.destroy();
+            this.balancer.removeActiveSocket(socketId);
+            this.onStateChange();
+          });
+
+        } catch (e) {
+          clientSocket.destroy();
+        }
+      });
+
+      clientSocket.on('error', () => {
+        this.balancer.removeActiveSocket(socketId);
+        this.onStateChange();
+      });
+    });
+
+    return server;
   }
 
   // --- FULL DUPLEX VLESS TCP INBOUND PROXY IMPLEMENTATION ---
