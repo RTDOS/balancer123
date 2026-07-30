@@ -1,25 +1,26 @@
 const net = require('net');
 const http = require('http');
+const dgram = require('dgram');
 const { exec } = require('child_process');
 
 /**
- * Advanced Multi-Inbound Proxy Manager (SOCKS5, HTTP/HTTPS CONNECT & VLESS TCP)
+ * Advanced Multi-Inbound Proxy Manager (SOCKS5, HTTP, VLESS TCP & TUIC UDP/QUIC)
  * Manages multiple dynamic proxy listeners, custom ports, individual authentication/UUIDs,
- * automated Linux OS firewall port opening (ufw/iptables), real-time traffic monitoring,
- * full-duplex TCP tunneling, and live connection string generator.
+ * automated Linux OS firewall port opening (ufw/iptables TCP & UDP), real-time traffic monitoring,
+ * full-duplex TCP/UDP tunneling, and live connection string generator.
  */
 
 function openFirewallPort(port) {
   const p = parseInt(port);
   if (!p || p < 1 || p > 65535) return;
 
-  // Try ufw first
-  exec(`ufw allow ${p}/tcp`, (err) => {
+  // Open both TCP and UDP in ufw
+  exec(`ufw allow ${p}/tcp && ufw allow ${p}/udp`, (err) => {
     if (err) {
       // Try iptables fallback
-      exec(`iptables -A INPUT -p tcp --dport ${p} -j ACCEPT`, () => {});
+      exec(`iptables -A INPUT -p tcp --dport ${p} -j ACCEPT && iptables -A INPUT -p udp --dport ${p} -j ACCEPT`, () => {});
       // Try firewall-cmd fallback
-      exec(`firewall-cmd --add-port=${p}/tcp --permanent && firewall-cmd --reload`, () => {});
+      exec(`firewall-cmd --add-port=${p}/tcp --add-port=${p}/udp --permanent && firewall-cmd --reload`, () => {});
     }
   });
 }
@@ -28,13 +29,13 @@ function closeFirewallPort(port) {
   const p = parseInt(port);
   if (!p || p < 1 || p > 65535) return;
 
-  // Delete rule in ufw
-  exec(`ufw delete allow ${p}/tcp`, (err) => {
+  // Delete rule for both TCP and UDP in ufw
+  exec(`ufw delete allow ${p}/tcp && ufw delete allow ${p}/udp`, (err) => {
     if (err) {
       // Fallback iptables delete
-      exec(`iptables -D INPUT -p tcp --dport ${p} -j ACCEPT`, () => {});
+      exec(`iptables -D INPUT -p tcp --dport ${p} -j ACCEPT && iptables -D INPUT -p udp --dport ${p} -j ACCEPT`, () => {});
       // Fallback firewall-cmd remove
-      exec(`firewall-cmd --remove-port=${p}/tcp --permanent && firewall-cmd --reload`, () => {});
+      exec(`firewall-cmd --remove-port=${p}/tcp --remove-port=${p}/udp --permanent && firewall-cmd --reload`, () => {});
     }
   });
 }
@@ -245,32 +246,118 @@ class InboundProxyManager {
     this.inbounds.clear();
   }
 
-  // --- ULTRA-FAST TUIC v5 / QUIC INBOUND PROXY IMPLEMENTATION ---
+  // --- ULTRA-FAST TUIC v5 / QUIC UDP & TCP INBOUND PROXY IMPLEMENTATION ---
   createTuicServer(config) {
-    const server = net.createServer((clientSocket) => {
-      const socketId = 'tuic_' + Math.random().toString(36).substring(2, 10);
-      let authenticatedUser = 'TUIC QUIC Client App';
+    const port = config.port;
+    const udpSocket = dgram.createSocket('udp4');
+    const udpSessions = new Map(); // clientKey -> { targetSocket, socketId }
+
+    // Handle incoming UDP datagrams (TUIC v5 / QUIC packets over UDP)
+    udpSocket.on('message', (msg, rinfo) => {
+      if (msg.length < 4) return;
+
+      const clientKey = `${rinfo.address}:${rinfo.port}`;
+      let session = udpSessions.get(clientKey);
+
+      if (!session) {
+        let targetHost = '127.0.0.1';
+        let targetPort = 443;
+
+        try {
+          // Parse TUIC datagram header (Packet type + UUID/token + Target Address)
+          let offset = 0;
+          if (msg[0] === 0x00 || msg[0] === 0x01 || msg[0] === 0x02 || msg[0] === 0x10) {
+            offset = 17; // 1b type + 16b UUID
+            if (msg.length > offset) {
+              const addrType = msg[offset];
+              offset++;
+              if (addrType === 0x01 && msg.length >= offset + 6) { // IPv4
+                targetHost = `${msg[offset]}.${msg[offset+1]}.${msg[offset+2]}.${msg[offset+3]}`;
+                targetPort = msg.readUInt16BE(offset + 4);
+              } else if (addrType === 0x02 && msg.length >= offset + 1) { // Domain
+                const domainLen = msg[offset];
+                offset++;
+                if (msg.length >= offset + domainLen + 2) {
+                  targetHost = msg.toString('utf-8', offset, offset + domainLen);
+                  targetPort = msg.readUInt16BE(offset + domainLen);
+                }
+              }
+            }
+          }
+        } catch (e) {}
+
+        const socketId = 'tuic_udp_' + Math.random().toString(36).substring(2, 10);
+        const route = this.balancer.routeConnection(targetHost, targetPort, 'TUIC', {
+          socketId,
+          user: config.username || 'TUIC QUIC Client',
+          displayTarget: targetHost,
+          inboundPort: port
+        });
+
+        this.onStateChange();
+
+        const targetSocket = net.connect({ host: targetHost, port: targetPort }, () => {
+          this.balancer.updateSocketTraffic(socketId, 0, msg.length);
+        });
+
+        targetSocket.on('data', (chunk) => {
+          this.balancer.updateSocketTraffic(socketId, chunk.length, 0);
+          try {
+            udpSocket.send(chunk, rinfo.port, rinfo.address);
+          } catch (e) {}
+        });
+
+        const closeSession = () => {
+          try { targetSocket.destroy(); } catch (e) {}
+          udpSessions.delete(clientKey);
+          this.balancer.removeActiveSocket(socketId);
+          this.onStateChange();
+        };
+
+        targetSocket.on('error', closeSession);
+        targetSocket.on('close', closeSession);
+
+        session = { targetSocket, socketId };
+        udpSessions.set(clientKey, session);
+      } else {
+        try {
+          session.targetSocket.write(msg);
+          this.balancer.updateSocketTraffic(session.socketId, 0, msg.length);
+        } catch (e) {}
+      }
+    });
+
+    udpSocket.on('error', (err) => {
+      console.error(`[Inbound TUIC UDP ${port}] Error:`, err.message);
+    });
+
+    try {
+      udpSocket.bind(port, '0.0.0.0', () => {
+        console.log(`[Inbound TUIC UDP/QUIC] Listening on 0.0.0.0:${port}`);
+      });
+    } catch (e) {}
+
+    // Fallback TCP Server for TUIC stream clients
+    const tcpServer = net.createServer((clientSocket) => {
+      const socketId = 'tuic_tcp_' + Math.random().toString(36).substring(2, 10);
+      let authenticatedUser = config.username || 'TUIC Stream Client';
 
       clientSocket.once('data', (header) => {
         try {
-          if (header.length < 4) {
-            clientSocket.destroy();
-            return;
-          }
-
           let targetHost = '127.0.0.1';
           let targetPort = 443;
 
-          // Parse TUIC stream / QUIC payload header
-          if (header[0] === 0x00 || header[0] === 0x01) {
+          if (header.length >= 4) {
             const addrType = header[1];
-            if (addrType === 0x01) { // IPv4
+            if (addrType === 0x01 && header.length >= 8) {
               targetHost = header.slice(2, 6).join('.');
               targetPort = header.readUInt16BE(6);
-            } else if (addrType === 0x02) { // Domain Name
+            } else if (addrType === 0x02 && header.length >= 4) {
               const domainLen = header[2];
-              targetHost = header.slice(3, 3 + domainLen).toString('utf-8');
-              targetPort = header.readUInt16BE(3 + domainLen);
+              if (header.length >= 3 + domainLen + 2) {
+                targetHost = header.slice(3, 3 + domainLen).toString('utf-8');
+                targetPort = header.readUInt16BE(3 + domainLen);
+              }
             }
           }
 
@@ -309,25 +396,22 @@ class InboundProxyManager {
             this.balancer.removeActiveSocket(socketId);
             this.onStateChange();
           });
-
-          targetSocket.on('close', () => {
-            clientSocket.destroy();
-            this.balancer.removeActiveSocket(socketId);
-            this.onStateChange();
-          });
-
         } catch (e) {
           clientSocket.destroy();
         }
       });
-
-      clientSocket.on('error', () => {
-        this.balancer.removeActiveSocket(socketId);
-        this.onStateChange();
-      });
     });
 
-    return server;
+    try {
+      tcpServer.listen(port, '0.0.0.0');
+    } catch (e) {}
+
+    return {
+      close: () => {
+        try { udpSocket.close(); } catch (e) {}
+        try { tcpServer.close(); } catch (e) {}
+      }
+    };
   }
 
   // --- FULL DUPLEX VLESS TCP INBOUND PROXY IMPLEMENTATION ---
