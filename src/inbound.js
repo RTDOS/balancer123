@@ -6,7 +6,7 @@ const { exec } = require('child_process');
  * Advanced Multi-Inbound Proxy Manager (SOCKS5 & HTTP/HTTPS CONNECT)
  * Manages multiple dynamic proxy listeners, custom ports, individual username/password auth,
  * automated Linux OS firewall port opening (ufw/iptables), real-time traffic monitoring,
- * and live connection string generator (socks5://user:pass@host:port).
+ * full-duplex TCP tunneling, and live connection string generator.
  */
 
 function openFirewallPort(port) {
@@ -161,7 +161,7 @@ class InboundProxyManager {
     }
   }
 
-  // --- SOCKS5 PROXY IMPLEMENTATION WITH REAL-TIME TRAFFIC & SOCKET TRACKING ---
+  // --- FULL DUPLEX SOCKS5 PROXY IMPLEMENTATION ---
   createSocks5Server(config) {
     const server = net.createServer((clientSocket) => {
       const socketId = 'socks5_' + Math.random().toString(36).substring(2, 10);
@@ -224,35 +224,61 @@ class InboundProxyManager {
             const domainLen = reqData[4];
             targetHost = reqData.slice(5, 5 + domainLen).toString('utf-8');
             targetPort = reqData.readUInt16BE(5 + domainLen);
+          } else if (addrType === 0x04) { // IPv6
+            targetHost = reqData.slice(4, 20).toString('hex').match(/.{1,4}/g).join(':');
+            targetPort = reqData.readUInt16BE(20);
           }
         } catch (e) {}
 
-        // Fallback display target: if IP is 8.8.8.8 or local, show real target or login username!
         let displayTarget = targetHost;
         if (targetHost === '8.8.8.8' || targetHost === '127.0.0.1') {
           displayTarget = authenticatedUser !== 'Anonymous' ? `${authenticatedUser} (${targetHost})` : targetHost;
         }
 
-        // Route connection through AntiLag Balancer & track active socket in REAL TIME!
+        // Register connection in AntiLag Balancer & track socket in REAL TIME!
         const route = this.balancer.routeConnection(targetHost, targetPort, 'SOCKS5', {
           socketId,
           user: authenticatedUser,
           displayTarget
         });
 
-        // Broadcast active socket instantly via WebSocket!
         this.onStateChange();
 
-        // Track socket bytes read / written
-        clientSocket.on('data', (chunk) => {
-          this.balancer.updateSocketTraffic(socketId, chunk.length, Math.floor(chunk.length * 0.15));
+        // Connect directly to target host and open Full-Duplex TCP Tunnel!
+        const targetSocket = net.connect({ host: targetHost, port: targetPort }, () => {
+          // Respond SOCKS5 Connection Success (0x00)
+          const reply = Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+          clientSocket.write(reply);
+
+          clientSocket.on('data', (chunk) => {
+            this.balancer.updateSocketTraffic(socketId, 0, chunk.length);
+          });
+
+          targetSocket.on('data', (chunk) => {
+            this.balancer.updateSocketTraffic(socketId, chunk.length, 0);
+          });
+
+          clientSocket.pipe(targetSocket);
+          targetSocket.pipe(clientSocket);
         });
 
-        // Respond SOCKS5 Connection Success (0x00)
-        const reply = Buffer.from([0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0, 80]);
-        clientSocket.write(reply);
+        targetSocket.on('error', () => {
+          try {
+            clientSocket.write(Buffer.from([0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
+            clientSocket.end();
+          } catch (e) {}
+          this.balancer.removeActiveSocket(socketId);
+          this.onStateChange();
+        });
 
         clientSocket.on('close', () => {
+          targetSocket.destroy();
+          this.balancer.removeActiveSocket(socketId);
+          this.onStateChange();
+        });
+
+        targetSocket.on('close', () => {
+          clientSocket.destroy();
           this.balancer.removeActiveSocket(socketId);
           this.onStateChange();
         });
@@ -260,7 +286,7 @@ class InboundProxyManager {
     });
   }
 
-  // --- HTTP & HTTPS CONNECT PROXY SERVER WITH REAL-TIME TRACKING & TRAFFIC MON ---
+  // --- FULL DUPLEX HTTP & HTTPS CONNECT PROXY SERVER ---
   createHttpServer(config) {
     const server = http.createServer((req, res) => {
       let authenticatedUser = config.username || 'Anonymous';
@@ -304,7 +330,7 @@ class InboundProxyManager {
       res.end(`AntiLag Router: Proxying ${targetHost}:${targetPort} via ${route.node ? route.node.name : 'Direct'}\n`);
     });
 
-    // Handle HTTPS CONNECT requests (Firefox YouTube, Speedtest, SSL Tunnels)
+    // Handle HTTPS CONNECT requests (Telegram, Firefox, YouTube, SSL Tunnels)
     server.on('connect', (req, clientSocket, head) => {
       let authenticatedUser = config.username || 'Anonymous';
 
@@ -331,30 +357,50 @@ class InboundProxyManager {
         displayTarget = authenticatedUser !== 'Anonymous' ? `${authenticatedUser} (${targetHost})` : targetHost;
       }
 
-      // 1. Register active connection in AntiLag Load Balancer Engine in REAL TIME!
       const route = this.balancer.routeConnection(targetHost, targetPort, 'HTTPS', {
         socketId,
         user: authenticatedUser,
         displayTarget
       });
 
-      // 2. Broadcast active socket instantly via WebSocket!
       this.onStateChange();
 
-      // Track traffic streaming
-      clientSocket.on('data', (chunk) => {
-        this.balancer.updateSocketTraffic(socketId, chunk.length, Math.floor(chunk.length * 0.15));
+      // Open TCP Tunnel to destination target host
+      const targetSocket = net.connect({ host: targetHost, port: targetPort }, () => {
+        clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (head && head.length > 0) {
+          targetSocket.write(head);
+        }
+
+        clientSocket.on('data', (chunk) => {
+          this.balancer.updateSocketTraffic(socketId, 0, chunk.length);
+        });
+
+        targetSocket.on('data', (chunk) => {
+          this.balancer.updateSocketTraffic(socketId, chunk.length, 0);
+        });
+
+        clientSocket.pipe(targetSocket);
+        targetSocket.pipe(clientSocket);
       });
 
-      // 3. Send 200 Connection Established to Browser (Firefox)
-      clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-
-      // 4. Track socket active lifetime
-      clientSocket.on('close', () => {
+      targetSocket.on('error', () => {
+        try {
+          clientSocket.write('HTTP/1.1 502 Service Unavailable\r\n\r\n');
+          clientSocket.end();
+        } catch (e) {}
         this.balancer.removeActiveSocket(socketId);
         this.onStateChange();
       });
-      clientSocket.on('error', () => {
+
+      clientSocket.on('close', () => {
+        targetSocket.destroy();
+        this.balancer.removeActiveSocket(socketId);
+        this.onStateChange();
+      });
+
+      targetSocket.on('close', () => {
+        clientSocket.destroy();
         this.balancer.removeActiveSocket(socketId);
         this.onStateChange();
       });

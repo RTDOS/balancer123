@@ -24,6 +24,17 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
+function formatTargetName(ip) {
+  if (!ip) return 'SOCKS/HTTP';
+  if (ip.startsWith('149.154.') || ip.startsWith('91.108.')) {
+    return `✈️ Telegram DC (${ip})`;
+  }
+  if (ip.startsWith('142.250.') || ip.startsWith('172.217.') || ip.startsWith('172.253.')) {
+    return `🌐 Google/YouTube (${ip})`;
+  }
+  return ip;
+}
+
 // Initialize Chart.js
 function initChart() {
   const ctx = document.getElementById('telemetryChart').getContext('2d');
@@ -342,7 +353,7 @@ function renderSocketsTable(sockets) {
     const uptimeStr = formatDuration(Date.now() - (s.startTimestamp || Date.now()));
     const downStr = formatBytes(s.bytesRead || 0);
     const upStr = formatBytes(s.bytesWritten || 0);
-    const targetText = s.targetIp || s.user || 'SOCKS/HTTP';
+    const targetText = formatTargetName(s.targetIp || s.user);
 
     return `
       <tr>
@@ -498,8 +509,7 @@ function renderInboundsConfigCards(inbounds) {
   const host = window.location.hostname || 'localhost';
 
   inbounds.forEach((inb) => {
-    const card = document.createElement('div');
-    card.className = 'inbound-card';
+    const card = document.className = 'inbound-card';
     card.id = `inboundCard_${inb.id}`;
 
     const initialUser = inb.username || '';
