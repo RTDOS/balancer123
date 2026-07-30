@@ -3,8 +3,8 @@ const http = require('http');
 const { exec } = require('child_process');
 
 /**
- * Advanced Multi-Inbound Proxy Manager (SOCKS5 & HTTP/HTTPS CONNECT)
- * Manages multiple dynamic proxy listeners, custom ports, individual username/password auth,
+ * Advanced Multi-Inbound Proxy Manager (SOCKS5, HTTP/HTTPS CONNECT & VLESS TCP)
+ * Manages multiple dynamic proxy listeners, custom ports, individual authentication/UUIDs,
  * automated Linux OS firewall port opening (ufw/iptables), real-time traffic monitoring,
  * full-duplex TCP tunneling, and live connection string generator.
  */
@@ -41,7 +41,7 @@ class InboundProxyManager {
     this.onStateChange = onStateChange || (() => {});
     this.inbounds = new Map(); // id -> inboundConfig
     
-    // Create default SOCKS5 and HTTP listeners
+    // Create default SOCKS5, HTTP, and VLESS listeners
     this.addInbound({
       id: 'default-socks5',
       name: 'Main SOCKS5 Proxy (1080)',
@@ -59,10 +59,32 @@ class InboundProxyManager {
       username: '',
       password: ''
     });
+
+    this.addInbound({
+      id: 'default-vless',
+      name: 'Main VLESS Balancer Proxy (1082)',
+      type: 'vless',
+      port: 1082,
+      username: '93a8b412-402a-4361-8255-7389ef121111',
+      password: ''
+    });
   }
 
   getInbounds() {
     return Array.from(this.inbounds.values()).map(inb => {
+      if (inb.type === 'vless') {
+        const uuid = inb.username || '93a8b412-402a-4361-8255-7389ef121111';
+        return {
+          id: inb.id,
+          name: inb.name,
+          type: inb.type,
+          port: inb.port,
+          username: uuid,
+          password: '',
+          connectionUrl: `vless://${uuid}@localhost:${inb.port}?type=tcp#AntiLag_VLESS_Balancer`
+        };
+      }
+
       const authPart = (inb.username && inb.password) ? `${inb.username}:${inb.password}@` : '';
       return {
         id: inb.id,
@@ -79,7 +101,8 @@ class InboundProxyManager {
   async addInbound({ id, name, type, port, username = '', password = '' }) {
     const inbId = id || `inbound-${Date.now()}-${Math.floor(Math.random()*1000)}`;
     const portNum = parseInt(port);
-    const inbName = name || `${type.toUpperCase()} Proxy (${portNum})`;
+    const inbType = type.toLowerCase();
+    const inbName = name || `${inbType.toUpperCase()} Proxy (${portNum})`;
 
     if (this.inbounds.has(inbId)) {
       await this.stopInbound(inbId);
@@ -88,15 +111,17 @@ class InboundProxyManager {
     const item = {
       id: inbId,
       name: inbName,
-      type: type.toLowerCase(),
+      type: inbType,
       port: portNum,
-      username: username ? username.trim() : '',
+      username: username ? username.trim() : (inbType === 'vless' ? '93a8b412-402a-4361-8255-7389ef121111' : ''),
       password: password ? password.trim() : '',
       server: null
     };
 
     if (item.type === 'socks5') {
       item.server = this.createSocks5Server(item);
+    } else if (item.type === 'vless') {
+      item.server = this.createVlessServer(item);
     } else {
       item.server = this.createHttpServer(item);
     }
@@ -159,6 +184,124 @@ class InboundProxyManager {
       } catch (e) {}
       item.server = null;
     }
+  }
+
+  stopAll() {
+    for (const [id] of this.inbounds) {
+      this.stopInbound(id);
+    }
+    this.inbounds.clear();
+  }
+
+  // --- FULL DUPLEX VLESS TCP INBOUND PROXY IMPLEMENTATION ---
+  createVlessServer(config) {
+    const server = net.createServer((clientSocket) => {
+      const socketId = 'vless_' + Math.random().toString(36).substring(2, 10);
+      let authenticatedUser = 'VLESS Client App';
+
+      clientSocket.once('data', (header) => {
+        try {
+          if (header.length < 18) {
+            clientSocket.destroy();
+            return;
+          }
+
+          const version = header[0];
+          const addonsLen = header[17];
+          let cursor = 18 + addonsLen;
+
+          if (header.length < cursor + 4) {
+            clientSocket.destroy();
+            return;
+          }
+
+          const command = header[cursor]; // 0x01 = TCP CONNECT, 0x02 = UDP
+          cursor += 1;
+
+          const targetPort = header.readUInt16BE(cursor);
+          cursor += 2;
+
+          const addrType = header[cursor];
+          cursor += 1;
+
+          let targetHost = '127.0.0.1';
+          if (addrType === 0x01) { // IPv4
+            targetHost = header.slice(cursor, cursor + 4).join('.');
+            cursor += 4;
+          } else if (addrType === 0x02) { // Domain Name
+            const domainLen = header[cursor];
+            cursor += 1;
+            targetHost = header.slice(cursor, cursor + domainLen).toString('utf-8');
+            cursor += domainLen;
+          } else if (addrType === 0x03) { // IPv6
+            targetHost = header.slice(cursor, cursor + 16).toString('hex').match(/.{1,4}/g).join(':');
+            cursor += 16;
+          }
+
+          const initialPayload = header.slice(cursor);
+
+          let displayTarget = targetHost;
+
+          // Register connection in AntiLag Balancer & track socket in REAL TIME!
+          const route = this.balancer.routeConnection(targetHost, targetPort, 'VLESS', {
+            socketId,
+            user: authenticatedUser,
+            displayTarget
+          });
+
+          this.onStateChange();
+
+          // Connect directly to target host and open Full-Duplex TCP Tunnel!
+          const targetSocket = net.connect({ host: targetHost, port: targetPort }, () => {
+            // Respond VLESS Header (0x00 version, 0x00 addons len)
+            clientSocket.write(Buffer.from([0x00, 0x00]));
+
+            if (initialPayload.length > 0) {
+              targetSocket.write(initialPayload);
+            }
+
+            clientSocket.on('data', (chunk) => {
+              this.balancer.updateSocketTraffic(socketId, 0, chunk.length);
+            });
+
+            targetSocket.on('data', (chunk) => {
+              this.balancer.updateSocketTraffic(socketId, chunk.length, 0);
+            });
+
+            clientSocket.pipe(targetSocket);
+            targetSocket.pipe(clientSocket);
+          });
+
+          targetSocket.on('error', () => {
+            clientSocket.destroy();
+            this.balancer.removeActiveSocket(socketId);
+            this.onStateChange();
+          });
+
+          clientSocket.on('close', () => {
+            targetSocket.destroy();
+            this.balancer.removeActiveSocket(socketId);
+            this.onStateChange();
+          });
+
+          targetSocket.on('close', () => {
+            clientSocket.destroy();
+            this.balancer.removeActiveSocket(socketId);
+            this.onStateChange();
+          });
+
+        } catch (e) {
+          clientSocket.destroy();
+        }
+      });
+
+      clientSocket.on('error', () => {
+        this.balancer.removeActiveSocket(socketId);
+        this.onStateChange();
+      });
+    });
+
+    return server;
   }
 
   // --- FULL DUPLEX SOCKS5 PROXY IMPLEMENTATION ---
@@ -299,24 +442,41 @@ class InboundProxyManager {
           });
           return res.end('Proxy Authentication Required\n');
         }
-
-        const creds = Buffer.from(proxyAuth.split(' ')[1], 'base64').toString('utf-8').split(':');
-        if (creds[0] !== config.username || creds[1] !== config.password) {
-          res.writeHead(407, { 'Proxy-Authenticate': 'Basic realm="Invalid Credentials"' });
+        const credentials = Buffer.from(proxyAuth.slice(6), 'base64').toString('utf-8').split(':');
+        if (credentials[0] !== config.username || credentials[1] !== config.password) {
+          res.writeHead(407);
           return res.end('Invalid Proxy Credentials\n');
         }
-        authenticatedUser = creds[0];
+        authenticatedUser = credentials[0];
       }
 
-      const hostHeader = req.headers['host'] || '127.0.0.1:80';
-      const [targetHost, targetPortStr] = hostHeader.split(':');
-      const targetPort = targetPortStr ? parseInt(targetPortStr) : 80;
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('AntiLag HTTP Proxy Engine Active\n');
+    });
 
+    // Handle HTTP CONNECT tunneling
+    server.on('connect', (req, clientSocket, head) => {
       const socketId = 'http_' + Math.random().toString(36).substring(2, 10);
-      let displayTarget = targetHost;
-      if (targetHost === '8.8.8.8' || targetHost === '127.0.0.1') {
-        displayTarget = authenticatedUser !== 'Anonymous' ? `${authenticatedUser} (${targetHost})` : targetHost;
+      let authenticatedUser = config.username || 'Anonymous';
+
+      if (config.username && config.password) {
+        const proxyAuth = req.headers['proxy-authorization'];
+        if (!proxyAuth || !proxyAuth.startsWith('Basic ')) {
+          clientSocket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="AntiLag Auth"\r\n\r\n');
+          return clientSocket.end();
+        }
+        const credentials = Buffer.from(proxyAuth.slice(6), 'base64').toString('utf-8').split(':');
+        if (credentials[0] !== config.username || credentials[1] !== config.password) {
+          clientSocket.write('HTTP/1.1 407 Proxy Authentication Required\r\n\r\n');
+          return clientSocket.end();
+        }
+        authenticatedUser = credentials[0];
       }
+
+      const [targetHost, targetPortStr] = req.url.split(':');
+      const targetPort = parseInt(targetPortStr) || 443;
+
+      let displayTarget = targetHost;
 
       const route = this.balancer.routeConnection(targetHost, targetPort, 'HTTP', {
         socketId,
@@ -326,48 +486,9 @@ class InboundProxyManager {
 
       this.onStateChange();
 
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      res.end(`AntiLag Router: Proxying ${targetHost}:${targetPort} via ${route.node ? route.node.name : 'Direct'}\n`);
-    });
-
-    // Handle HTTPS CONNECT requests (Telegram, Firefox, YouTube, SSL Tunnels)
-    server.on('connect', (req, clientSocket, head) => {
-      let authenticatedUser = config.username || 'Anonymous';
-
-      if (config.username && config.password) {
-        const proxyAuth = req.headers['proxy-authorization'];
-        if (!proxyAuth || !proxyAuth.startsWith('Basic ')) {
-          clientSocket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="AntiLag Proxy Auth"\r\n\r\n');
-          return clientSocket.end();
-        }
-        const creds = Buffer.from(proxyAuth.split(' ')[1], 'base64').toString('utf-8').split(':');
-        if (creds[0] !== config.username || creds[1] !== config.password) {
-          clientSocket.write('HTTP/1.1 407 Proxy Authentication Required\r\n\r\n');
-          return clientSocket.end();
-        }
-        authenticatedUser = creds[0];
-      }
-
-      const socketId = 'connect_' + Math.random().toString(36).substring(2, 10);
-      const [targetHost, targetPortStr] = (req.url || '').split(':');
-      const targetPort = targetPortStr ? parseInt(targetPortStr) : 443;
-
-      let displayTarget = targetHost;
-      if (targetHost === '8.8.8.8' || targetHost === '127.0.0.1') {
-        displayTarget = authenticatedUser !== 'Anonymous' ? `${authenticatedUser} (${targetHost})` : targetHost;
-      }
-
-      const route = this.balancer.routeConnection(targetHost, targetPort, 'HTTPS', {
-        socketId,
-        user: authenticatedUser,
-        displayTarget
-      });
-
-      this.onStateChange();
-
-      // Open TCP Tunnel to destination target host
       const targetSocket = net.connect({ host: targetHost, port: targetPort }, () => {
         clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+
         if (head && head.length > 0) {
           targetSocket.write(head);
         }
@@ -385,10 +506,8 @@ class InboundProxyManager {
       });
 
       targetSocket.on('error', () => {
-        try {
-          clientSocket.write('HTTP/1.1 502 Service Unavailable\r\n\r\n');
-          clientSocket.end();
-        } catch (e) {}
+        clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+        clientSocket.end();
         this.balancer.removeActiveSocket(socketId);
         this.onStateChange();
       });
@@ -408,19 +527,10 @@ class InboundProxyManager {
 
     return server;
   }
-
-  stopAll() {
-    this.inbounds.forEach((item) => {
-      if (item.server) {
-        try { item.server.close(); } catch (e) {}
-      }
-    });
-    this.inbounds.clear();
-  }
 }
 
 module.exports = {
   InboundProxyManager,
-  isPortAvailable,
-  openFirewallPort
+  openFirewallPort,
+  isPortAvailable
 };

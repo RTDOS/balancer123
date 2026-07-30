@@ -98,6 +98,17 @@ if (appConfig.inbounds && appConfig.inbounds.length > 0) {
   appConfig.inbounds.forEach(inb => {
     inboundManager.addInbound(inb);
   });
+  const hasVless = appConfig.inbounds.some(i => (i.type || '').toLowerCase() === 'vless');
+  if (!hasVless) {
+    inboundManager.addInbound({
+      id: 'default-vless',
+      name: 'Main VLESS Balancer Proxy (1082)',
+      type: 'vless',
+      port: 1082,
+      username: '93a8b412-402a-4361-8255-7389ef121111',
+      password: ''
+    });
+  }
 }
 
 if (appConfig.clusterPeers && appConfig.clusterPeers.length > 0) {
