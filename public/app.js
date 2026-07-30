@@ -509,7 +509,8 @@ function renderInboundsConfigCards(inbounds) {
   const host = window.location.hostname || 'localhost';
 
   inbounds.forEach((inb) => {
-    const card = document.className = 'inbound-card';
+    const card = document.createElement('div');
+    card.className = 'inbound-card';
     card.id = `inboundCard_${inb.id}`;
 
     const initialUser = inb.username || '';
