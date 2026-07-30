@@ -544,6 +544,27 @@ function closeInboundsConfigModal() {
   document.getElementById('inboundsConfigModal').classList.remove('open');
 }
 
+function formatInboundConnectionUrl(inb, host = window.location.hostname || 'localhost') {
+  const type = (inb.type || 'socks5').toLowerCase();
+  const port = inb.port || 1080;
+  const user = (inb.username || '').trim();
+  const pass = (inb.password || '').trim();
+
+  if (type === 'vless') {
+    const uuid = (user && !user.startsWith('usr_') && user.length >= 20) ? user : '93a8b412-402a-4361-8255-7389ef121111';
+    return `vless://${uuid}@${host}:${port}?type=tcp#AntiLag_VLESS_${port}`;
+  }
+
+  if (type === 'tuic') {
+    const uuid = (user && !user.startsWith('usr_') && user.length >= 20) ? user : '93a8b412-402a-4361-8255-7389ef121111';
+    const tuicPass = pass || 'tuicpass123';
+    return `tuic://${uuid}:${tuicPass}@${host}:${port}?congestion_control=bbr&alpn=h3#AntiLag_TUIC_${port}`;
+  }
+
+  const authPart = (user && pass) ? `${user}:${pass}@` : '';
+  return `${type}://${authPart}${host}:${port}`;
+}
+
 function renderInboundsConfigCards(inbounds) {
   const container = document.getElementById('inboundsListContainer');
   container.innerHTML = '';
@@ -560,18 +581,7 @@ function renderInboundsConfigCards(inbounds) {
     const initialPort = inb.port || 1080;
     const initialType = inb.type || 'socks5';
 
-    let liveUrl = inb.connectionUrl || '';
-    if (initialType === 'vless') {
-      const uuid = initialUser || '93a8b412-402a-4361-8255-7389ef121111';
-      liveUrl = `vless://${uuid}@${host}:${initialPort}?type=tcp#AntiLag_VLESS_${initialPort}`;
-    } else if (initialType === 'tuic') {
-      const uuid = initialUser || '93a8b412-402a-4361-8255-7389ef121111';
-      const tuicPass = initialPass || 'tuicpass123';
-      liveUrl = `tuic://${uuid}:${tuicPass}@${host}:${initialPort}?congestion_control=bbr&alpn=h3#AntiLag_TUIC_${initialPort}`;
-    } else {
-      const authPart = (initialUser && initialPass) ? `${initialUser}:${initialPass}@` : '';
-      liveUrl = `${initialType}://${authPart}${host}:${initialPort}`;
-    }
+    const liveUrl = formatInboundConnectionUrl(inb, host);
 
     card.innerHTML = `
       <div class="inbound-card-header">
@@ -644,7 +654,6 @@ function updateInboundPreview(id) {
   const passGroup = document.getElementById(`inbPassGroup_${id}`);
   const passInput = document.getElementById(`inbPass_${id}`);
 
-  let liveUrl = '';
   if (type === 'vless') {
     if (userLabel) userLabel.innerText = 'UUID Клиента';
     if (passGroup) passGroup.style.opacity = '0.4';
@@ -652,8 +661,6 @@ function updateInboundPreview(id) {
       passInput.placeholder = 'не требуется для VLESS';
       passInput.disabled = true;
     }
-    const uuid = user || '93a8b412-402a-4361-8255-7389ef121111';
-    liveUrl = `vless://${uuid}@${host}:${port}?type=tcp#AntiLag_VLESS_${port}`;
   } else if (type === 'tuic') {
     if (userLabel) userLabel.innerText = 'UUID Клиента';
     if (passGroup) passGroup.style.opacity = '1.0';
@@ -661,9 +668,6 @@ function updateInboundPreview(id) {
       passInput.placeholder = 'Пароль TUIC';
       passInput.disabled = false;
     }
-    const uuid = user || '93a8b412-402a-4361-8255-7389ef121111';
-    const tuicPass = pass || 'tuicpass123';
-    liveUrl = `tuic://${uuid}:${tuicPass}@${host}:${port}?congestion_control=bbr&alpn=h3#AntiLag_TUIC_${port}`;
   } else {
     if (userLabel) userLabel.innerText = 'Логин (Username)';
     if (passGroup) passGroup.style.opacity = '1.0';
@@ -671,9 +675,9 @@ function updateInboundPreview(id) {
       passInput.placeholder = 'без пароля';
       passInput.disabled = false;
     }
-    const authPart = (user && pass) ? `${user}:${pass}@` : '';
-    liveUrl = `${type}://${authPart}${host}:${port}`;
   }
+
+  const liveUrl = formatInboundConnectionUrl({ type, port, username: user, password: pass }, host);
 
   const previewEl = document.getElementById(`inbPreview_${id}`);
   if (previewEl) {
@@ -1157,10 +1161,7 @@ function openExportModal() {
   const clashInput = document.getElementById('clashSubUrlInput');
   if (clashInput) clashInput.value = clashSubUrl;
 
-  const exportText = currentInboundsList.map(inb => {
-    const auth = (inb.username && inb.password) ? `${inb.username}:${inb.password}@` : '';
-    return `${inb.type}://${auth}${host}:${inb.port}`;
-  }).join('\n');
+  const exportText = currentInboundsList.map(inb => formatInboundConnectionUrl(inb, host)).join('\n\n');
 
   const area = document.getElementById('clientSocksExportArea');
   if (area) {

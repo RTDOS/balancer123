@@ -504,11 +504,24 @@ app.get('/api/export/sub', (req, res) => {
   const inbounds = inboundManager.getInbounds();
 
   const lines = inbounds.map(inb => {
+    if (inb.connectionUrl) {
+      return inb.connectionUrl.replace('localhost', host);
+    }
+    const type = (inb.type || '').toLowerCase();
+    if (type === 'vless') {
+      const uuid = inb.username || '93a8b412-402a-4361-8255-7389ef121111';
+      return `vless://${uuid}@${host}:${inb.port}?type=tcp#AntiLag_VLESS_${inb.port}`;
+    }
+    if (type === 'tuic') {
+      const uuid = inb.username || '93a8b412-402a-4361-8255-7389ef121111';
+      const pass = inb.password || 'tuicpass123';
+      return `tuic://${uuid}:${pass}@${host}:${inb.port}?congestion_control=bbr&alpn=h3#AntiLag_TUIC_${inb.port}`;
+    }
     const auth = (inb.username && inb.password) ? `${inb.username}:${inb.password}@` : '';
     return `${inb.type}://${auth}${host}:${inb.port}#AntiLag_Balancer_${inb.type.toUpperCase()}_${inb.port}`;
   });
 
-  const base64Sub = Buffer.from(lines.join('\n')).toString('base64');
+  const base64Sub = Buffer.from(lines.join('\n\n')).toString('base64');
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.send(base64Sub);
 });
@@ -522,15 +535,24 @@ app.get('/api/export/clash', (req, res) => {
   const proxyNames = [];
 
   inbounds.forEach(inb => {
-    const name = `⚡ AntiLag Balancer ${inb.type.toUpperCase()} (${inb.port})`;
+    const type = (inb.type || '').toLowerCase();
+    const name = `⚡ AntiLag Balancer ${type.toUpperCase()} (${inb.port})`;
     proxyNames.push(name);
 
-    let authYaml = '';
-    if (inb.username && inb.password) {
-      authYaml = `\n    username: "${inb.username}"\n    password: "${inb.password}"`;
+    if (type === 'vless') {
+      const uuid = inb.username || '93a8b412-402a-4361-8255-7389ef121111';
+      proxiesYaml += `  - name: "${name}"\n    type: vless\n    server: "${host}"\n    port: ${inb.port}\n    uuid: "${uuid}"\n    cipher: auto\n`;
+    } else if (type === 'tuic') {
+      const uuid = inb.username || '93a8b412-402a-4361-8255-7389ef121111';
+      const pass = inb.password || 'tuicpass123';
+      proxiesYaml += `  - name: "${name}"\n    type: tuic\n    server: "${host}"\n    port: ${inb.port}\n    uuid: "${uuid}"\n    password: "${pass}"\n    alpn: ["h3"]\n`;
+    } else {
+      let authYaml = '';
+      if (inb.username && inb.password) {
+        authYaml = `\n    username: "${inb.username}"\n    password: "${inb.password}"`;
+      }
+      proxiesYaml += `  - name: "${name}"\n    type: ${type}\n    server: "${host}"\n    port: ${inb.port}${authYaml}\n`;
     }
-
-    proxiesYaml += `  - name: "${name}"\n    type: ${inb.type}\n    server: "${host}"\n    port: ${inb.port}${authYaml}\n`;
   });
 
   const yamlContent = `port: 7890
