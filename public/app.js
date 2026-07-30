@@ -1073,6 +1073,18 @@ function closeModeInfoModal() {
 
 function openExportModal() {
   const host = window.location.hostname || 'localhost';
+  const port = window.location.port ? `:${window.location.port}` : '';
+  const proto = window.location.protocol;
+
+  const universalSubUrl = `${proto}//${host}${port}/api/export/sub`;
+  const clashSubUrl = `${proto}//${host}${port}/api/export/clash`;
+
+  const uniInput = document.getElementById('universalSubUrlInput');
+  if (uniInput) uniInput.value = universalSubUrl;
+
+  const clashInput = document.getElementById('clashSubUrlInput');
+  if (clashInput) clashInput.value = clashSubUrl;
+
   const exportText = currentInboundsList.map(inb => {
     const auth = (inb.username && inb.password) ? `${inb.username}:${inb.password}@` : '';
     return `${inb.type}://${auth}${host}:${inb.port}`;
