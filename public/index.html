@@ -28,8 +28,8 @@
           <span style="opacity:0.4;">|</span>
           <span id="httpPortDisplay">HTTP: 1081</span>
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="openInboundsConfigModal()" title="Настройка HTTP и SOCKS5 подключений">
-          🔀 Конфигурация HTTP / SOCKS
+        <button class="btn btn-secondary btn-sm" onclick="openInboundsConfigModal()" title="Настройка входящих прокси подключений">
+          🔀 Конфигурация Прокси
         </button>
         <button class="btn btn-secondary btn-sm" onclick="openAdminAuthModal()" title="Пароль доступа к веб-панели">
           🔐 Пароль Панели
@@ -286,7 +286,7 @@
         </div>
       </div>
       <div class="modal-footer" style="justify-content:space-between;">
-        <button class="btn btn-secondary" onclick="openAddInboundModal()">+ Добавить ещё прокси (HTTP / SOCKS)</button>
+        <button class="btn btn-secondary" onclick="openAddInboundModal()">+ Добавить входящий прокси порт</button>
         <button class="btn btn-primary" onclick="closeInboundsConfigModal()">Готово</button>
       </div>
     </div>
@@ -306,6 +306,7 @@
             <option value="socks5">SOCKS5 Прокси (Telegram / ПК / Браузеры)</option>
             <option value="http">HTTP Прокси (Системный прокси)</option>
             <option value="vless">⚡ VLESS Прокси (Happ / Hiddify / v2rayN / Shadowrocket)</option>
+            <option value="tuic">🚀 TUIC v5 Прокси (QUIC / UDP Fast)</option>
           </select>
         </div>
         <div class="form-group" style="margin-top:12px;">

@@ -24,6 +24,21 @@ function openFirewallPort(port) {
   });
 }
 
+function closeFirewallPort(port) {
+  const p = parseInt(port);
+  if (!p || p < 1 || p > 65535) return;
+
+  // Delete rule in ufw
+  exec(`ufw delete allow ${p}/tcp`, (err) => {
+    if (err) {
+      // Fallback iptables delete
+      exec(`iptables -D INPUT -p tcp --dport ${p} -j ACCEPT`, () => {});
+      // Fallback firewall-cmd remove
+      exec(`firewall-cmd --remove-port=${p}/tcp --permanent && firewall-cmd --reload`, () => {});
+    }
+  });
+}
+
 function isPortAvailable(port) {
   return new Promise((resolve) => {
     const tester = net.createServer()
@@ -133,12 +148,17 @@ class InboundProxyManager {
       await this.stopInbound(inbId);
     }
 
+    let finalUser = username ? username.trim() : '';
+    if (inbType === 'vless' || inbType === 'tuic') {
+      finalUser = normalizeUuid(finalUser);
+    }
+
     const item = {
       id: inbId,
       name: inbName,
       type: inbType,
       port: portNum,
-      username: username ? username.trim() : (inbType === 'vless' ? '93a8b412-402a-4361-8255-7389ef121111' : ''),
+      username: finalUser,
       password: password ? password.trim() : '',
       server: null
     };
@@ -180,6 +200,7 @@ class InboundProxyManager {
     if (portChanged) {
       const avail = await isPortAvailable(newPort);
       if (!avail) throw new Error(`Порт ${newPort} уже занят другим приложением!`);
+      closeFirewallPort(existing.port);
     }
 
     await this.stopInbound(id);
@@ -197,6 +218,10 @@ class InboundProxyManager {
   async deleteInbound(id) {
     if (this.inbounds.size <= 1) {
       throw new Error('Нельзя удалить единственный прокси порт!');
+    }
+    const item = this.inbounds.get(id);
+    if (item) {
+      closeFirewallPort(item.port);
     }
     await this.stopInbound(id);
     this.inbounds.delete(id);
