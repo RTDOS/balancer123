@@ -516,7 +516,7 @@ app.get('/api/export/sub', (req, res) => {
     if (type === 'tuic') {
       const uuid = inb.username || '93a8b412-402a-4361-8255-7389ef121111';
       const pass = inb.password || 'tuicpass123';
-      return `tuic://${uuid}:${pass}@${host}:${inb.port}?congestion_control=bbr&alpn=h3#AntiLag_TUIC_${inb.port}`;
+      return `tuic://${uuid}:${pass}@${host}:${inb.port}?congestion_control=bbr&alpn=h3&udp_relay_mode=native&allow_insecure=1#AntiLag_TUIC_${inb.port}`;
     }
     const auth = (inb.username && inb.password) ? `${inb.username}:${inb.password}@` : '';
     return `${inb.type}://${auth}${host}:${inb.port}#AntiLag_Balancer_${inb.type.toUpperCase()}_${inb.port}`;
@@ -546,7 +546,7 @@ app.get('/api/export/clash', (req, res) => {
     } else if (type === 'tuic') {
       const uuid = inb.username || '93a8b412-402a-4361-8255-7389ef121111';
       const pass = inb.password || 'tuicpass123';
-      proxiesYaml += `  - name: "${name}"\n    type: tuic\n    server: "${host}"\n    port: ${inb.port}\n    uuid: "${uuid}"\n    password: "${pass}"\n    alpn: ["h3"]\n`;
+      proxiesYaml += `  - name: "${name}"\n    type: tuic\n    server: "${host}"\n    port: ${inb.port}\n    uuid: "${uuid}"\n    password: "${pass}"\n    alpn: ["h3"]\n    skip-cert-verify: true\n    udp-relay-mode: native\n`;
     } else {
       let authYaml = '';
       if (inb.username && inb.password) {

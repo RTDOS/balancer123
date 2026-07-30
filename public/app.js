@@ -680,7 +680,7 @@ function formatInboundConnectionUrl(inb, host = window.location.hostname || 'loc
   if (type === 'tuic') {
     const uuid = (user && !user.startsWith('usr_') && user.length >= 20) ? user : '93a8b412-402a-4361-8255-7389ef121111';
     const tuicPass = pass || 'tuicpass123';
-    return `tuic://${uuid}:${tuicPass}@${host}:${port}?congestion_control=bbr&alpn=h3#AntiLag_TUIC_${port}`;
+    return `tuic://${uuid}:${tuicPass}@${host}:${port}?congestion_control=bbr&alpn=h3&udp_relay_mode=native&allow_insecure=1#AntiLag_TUIC_${port}`;
   }
 
   const authPart = (user && pass) ? `${user}:${pass}@` : '';

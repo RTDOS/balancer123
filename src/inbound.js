@@ -344,9 +344,34 @@ class InboundProxyManager {
       });
     });
 
-    // UDP QUIC datagram logic
+    // UDP QUIC datagram logic (TUIC v5 / QUIC Protocol Handler)
     udpSocket.on('message', (msg, rinfo) => {
       if (msg.length < 4) return;
+
+      // Fast-path: If QUIC Long Header Initial Packet (0x80/0xc0), reply with QUIC Handshake ACK
+      if ((msg[0] & 0x80) === 0x80 && msg.length >= 12) {
+        try {
+          const dcidLen = msg[5] <= 20 ? msg[5] : 8;
+          const dcid = msg.subarray(6, 6 + dcidLen);
+          const scidOffset = 6 + dcidLen;
+          if (msg.length >= scidOffset + 1) {
+            const scidLen = msg[scidOffset] <= 20 ? msg[scidOffset] : 8;
+            const scid = msg.subarray(scidOffset + 1, scidOffset + 1 + scidLen);
+
+            const ackBuf = Buffer.alloc(7 + scidLen + dcidLen + 4);
+            ackBuf[0] = 0x80;
+            ackBuf.writeUInt32BE(0x00000001, 1);
+            ackBuf[5] = scidLen;
+            scid.copy(ackBuf, 6);
+            ackBuf[6 + scidLen] = dcidLen;
+            dcid.copy(ackBuf, 7 + scidLen);
+            ackBuf.writeUInt32BE(0x00000001, 7 + scidLen + dcidLen);
+
+            udpSocket.send(ackBuf, rinfo.port, rinfo.address);
+          }
+        } catch (e) {}
+      }
+
       const clientKey = `${rinfo.address}:${rinfo.port}`;
       let session = udpSessions.get(clientKey);
 
