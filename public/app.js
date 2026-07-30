@@ -560,8 +560,18 @@ function renderInboundsConfigCards(inbounds) {
     const initialPort = inb.port || 1080;
     const initialType = inb.type || 'socks5';
 
-    const authPart = (initialUser && initialPass) ? `${initialUser}:${initialPass}@` : '';
-    const liveUrl = `${initialType}://${authPart}${host}:${initialPort}`;
+    let liveUrl = inb.connectionUrl || '';
+    if (initialType === 'vless') {
+      const uuid = initialUser || '93a8b412-402a-4361-8255-7389ef121111';
+      liveUrl = `vless://${uuid}@${host}:${initialPort}?type=tcp#AntiLag_VLESS_${initialPort}`;
+    } else if (initialType === 'tuic') {
+      const uuid = initialUser || '93a8b412-402a-4361-8255-7389ef121111';
+      const tuicPass = initialPass || 'tuicpass123';
+      liveUrl = `tuic://${uuid}:${tuicPass}@${host}:${initialPort}?congestion_control=bbr&alpn=h3#AntiLag_TUIC_${initialPort}`;
+    } else {
+      const authPart = (initialUser && initialPass) ? `${initialUser}:${initialPass}@` : '';
+      liveUrl = `${initialType}://${authPart}${host}:${initialPort}`;
+    }
 
     card.innerHTML = `
       <div class="inbound-card-header">
