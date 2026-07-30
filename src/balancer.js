@@ -5,6 +5,26 @@
 
 const crypto = require('crypto');
 
+function getStickyKey(targetHost) {
+  if (!targetHost || typeof targetHost !== 'string') return 'default';
+  
+  const host = targetHost.trim().toLowerCase();
+
+  // If IPv4 (e.g. 142.251.155.2) -> group by /24 subnet: 142.251.155.0
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) {
+    const parts = host.split('.');
+    return `${parts[0]}.${parts[1]}.${parts[2]}.0`;
+  }
+
+  // If Domain (e.g. rr3---sn-2ohpa5-5c.googlevideo.com) -> extract base domain
+  const parts = host.split('.');
+  if (parts.length >= 2) {
+    return parts.slice(-2).join('.');
+  }
+
+  return host;
+}
+
 class AntiLagBalancer {
   constructor() {
     this.mode = 'gaming'; // 'gaming' | 'web'
@@ -125,42 +145,46 @@ class AntiLagBalancer {
       return { node: null, reason: 'No active nodes available' };
     }
 
-    // 1. Check IP Affinity (Sticky Session)
-    if (this.ipAffinityMap.has(targetIp)) {
-      const boundNodeId = this.ipAffinityMap.get(targetIp);
-      const boundNode = activeNodes.find(n => n.id === boundNodeId);
+    const rawHost = meta.displayTarget || targetIp || '';
+    const stickyKey = getStickyKey(rawHost);
 
-      if (boundNode) {
-        if (this.mode === 'gaming') {
-          if (boundNode.lossRatio < 25 && boundNode.ping < 450) {
-            return this.createSocketRecord(targetIp, targetPort, protocol, boundNode, 'Gaming Protection', meta);
-          } else {
-            this.stats.microLagPreventedCount++;
-          }
-        } else {
-          if (boundNode.ping < 150 && boundNode.lossRatio < 10) {
-            return this.createSocketRecord(targetIp, targetPort, protocol, boundNode, 'Web Fast Path', meta);
-          } else {
-            this.stats.microLagPreventedCount++;
-          }
-        }
+    // 1. Check Sticky Domain / Subnet Affinity
+    let boundNodeId = this.ipAffinityMap.get(stickyKey) || this.ipAffinityMap.get(targetIp);
+    
+    if (boundNodeId) {
+      const boundNode = activeNodes.find(n => n.id === boundNodeId);
+      if (boundNode && boundNode.lossRatio < 30 && boundNode.ping < 500) {
+        return this.createSocketRecord(targetIp, targetPort, protocol, boundNode, 'Domain Sticky Affinity (Anti-Flap)', meta);
       }
     }
 
-    // 2. Select optimal node
+    // 2. Select optimal node with Hysteresis Stability (prevent 1ms ping jitter swapping)
     const sorted = [...activeNodes].sort((a, b) => {
       const scoreA = a.ping + (a.jitter * 2) + (a.lossRatio * 15);
       const scoreB = b.ping + (b.jitter * 2) + (b.lossRatio * 15);
       return scoreA - scoreB;
     });
 
-    const bestNode = sorted[0];
+    let bestNode = sorted[0];
 
-    // Update IP Affinity
-    this.ipAffinityMap.set(targetIp, bestNode.id);
+    // If active primary node is healthy and within 20ms of absolute best, stick to primary node!
+    if (this.activeOutboundId) {
+      const currentPrimaryNode = activeNodes.find(n => n.id === this.activeOutboundId);
+      if (currentPrimaryNode && currentPrimaryNode.lossRatio < 20) {
+        const scorePrimary = currentPrimaryNode.ping + (currentPrimaryNode.jitter * 2) + (currentPrimaryNode.lossRatio * 15);
+        const scoreBest = bestNode.ping + (bestNode.jitter * 2) + (bestNode.lossRatio * 15);
+        if (scorePrimary - scoreBest < 25) { // less than 25ms score difference -> stay on current primary
+          bestNode = currentPrimaryNode;
+        }
+      }
+    }
+
+    // Update IP & Domain Affinity
+    this.ipAffinityMap.set(stickyKey, bestNode.id);
+    if (targetIp) this.ipAffinityMap.set(targetIp, bestNode.id);
     this.activeOutboundId = bestNode.id;
 
-    return this.createSocketRecord(targetIp, targetPort, protocol, bestNode, `Routed to lowest RTT node (${bestNode.ping}ms)`, meta);
+    return this.createSocketRecord(targetIp, targetPort, protocol, bestNode, `Routed to stable node (${bestNode.ping}ms)`, meta);
   }
 
   createSocketRecord(targetIp, targetPort, protocol, node, reason, meta = {}) {
