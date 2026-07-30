@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AntiLag VPN Balancer & Proxy Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="navbar">
+      <div class="brand">
+        <div class="logo-icon">⚡</div>
+        <div class="brand-text">
+          <h1>AntiLag Router</h1>
+          <span class="version-tag" id="panelVersionTag">v4.1.0 Auto-Sync & Persistent Config Engine</span>
+        </div>
+      </div>
+      <div class="navbar-actions">
+        <div class="port-badge" id="navbarInboundsBadge" onclick="openInboundsConfigModal()" style="cursor:pointer;" title="Нажмите для настройки портов прокси">
+          <span class="dot active"></span>
+          <span id="socksPortDisplay">SOCKS5: 1080</span>
+          <span style="opacity:0.4;">|</span>
+          <span id="httpPortDisplay">HTTP: 1081</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="openInboundsConfigModal()" title="Настройка HTTP и SOCKS5 подключений">
+          🔀 Конфигурация HTTP / SOCKS
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="openAdminAuthModal()" title="Пароль доступа к веб-панели">
+          🔐 Пароль Панели
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="openSecretSettingsModal()" title="Настройки секретного пути">
+          🔒 Путь: <code id="secretPathBadge">/secret/</code>
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="openTelegramExportModal()" title="Экспорт прокси ссылки в Telegram в 1 клик" style="background:rgba(6,182,212,0.15); border-color:rgba(6,182,212,0.4); color:#38bdf8;">
+          ✈️ Экспорт в Telegram
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="openExportModal()" title="Экспорт ссылок для клиентов">
+          🔗 Подписки
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="openImportModal()">
+          <span>+ Импорт ссылок</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Default Password Alert Banner -->
+    <div id="defaultPassWarningBanner" style="display:none; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#f87171; padding:10px 16px; border-radius:12px; margin-bottom:16px; font-size:13px; align-items:center; justify-content:space-between;">
+      <span>⚠️ <strong>Внимание:</strong> Вы используете стандартный пароль панели (<code>admin / admin</code>). Смените его для защиты сервера!</span>
+      <button class="btn btn-secondary btn-sm" onclick="openAdminAuthModal()" style="background:rgba(239,68,68,0.3); border-color:#ef4444; color:#fff;">Сменить пароль в 1 клик</button>
+    </div>
+
+    <!-- Main Grid -->
+    <main class="content-grid">
+      <!-- Mode & Overview Row -->
+      <section class="overview-section">
+        <!-- Mode Selector Card -->
+        <div class="card mode-card">
+          <div class="card-header">
+            <h3>Режим балансировки трафика</h3>
+            <span class="info-tooltip" onclick="openModeInfoModal()" title="Нажмите для подробной информации о режимах">ℹ️</span>
+          </div>
+          <div class="mode-toggle-group">
+            <button class="mode-btn active" id="modeGamingBtn" onclick="setMode('gaming')">
+              <div class="mode-icon">🛡️</div>
+              <div class="mode-info">
+                <div class="mode-title">Игровой режим (Gaming Mode)</div>
+                <div class="mode-desc">Защита от вылетов из CS, Valorant, Dota. Удержание IP до последнего.</div>
+              </div>
+            </button>
+            <button class="mode-btn" id="modeWebBtn" onclick="setMode('web')">
+              <div class="mode-icon">⚡</div>
+              <div class="mode-info">
+                <div class="mode-title">Веб / Стриминг (Fast Switch)</div>
+                <div class="mode-desc">Агрессивное переключение за 50мс для сайтов и видео.</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Metrics Stats (6 Cards Grid - 2 per row) -->
+        <div class="metrics-grid">
+          <div class="stat-card">
+            <div class="stat-icon purple">🌐</div>
+            <div class="stat-content">
+              <span class="stat-label">Активных нод</span>
+              <span class="stat-value" id="nodeCount">0</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon green">🛡️</div>
+            <div class="stat-content">
+              <span class="stat-label">Предотвращено фризов</span>
+              <span class="stat-value" id="preventedLags">0</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon blue">📶</div>
+            <div class="stat-content">
+              <span class="stat-label">Средний пинг</span>
+              <span class="stat-value" id="avgPing">0 ms</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon orange">🔀</div>
+            <div class="stat-content">
+              <span class="stat-label">Всего соединений</span>
+              <span class="stat-value" id="totalConnections">0</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon cyan">⚡</div>
+            <div class="stat-content">
+              <span class="stat-label">Активные соединения</span>
+              <span class="stat-value" id="activeSocketsCount">0</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon purple">🔥</div>
+            <div class="stat-content">
+              <span class="stat-label">Общий трафик</span>
+              <span class="stat-value" id="totalTrafficDisplay" style="font-size:14px; font-family:'JetBrains Mono', monospace;">⬇️ 0 B | ⬆️ 0 B</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Multi-Server HA Cluster Section -->
+      <section class="card cluster-section">
+        <div class="card-header">
+          <h3>Высокодоступный Кластер (2-3 Сервера HA Mesh)</h3>
+          <button class="btn btn-secondary btn-sm" onclick="openAddPeerModal()">+ Добавить ноду кластера</button>
+        </div>
+
+        <div style="margin-bottom: 12px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <span style="font-size:12px; color:#a5b4fc; font-weight:600; display:block;">🔑 Ваш SHA-256 Ключ Кластера (Ключ Безопасной Синхронизации):</span>
+            <code id="clusterKeyDisplay" style="font-family:'JetBrains Mono', monospace; font-size:12px; color:#38bdf8; word-break:break-all;">Загрузка ключа...</code>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-secondary btn-sm" onclick="copyClusterKey()" style="white-space:nowrap;">📋 Скопировать ключ</button>
+            <button class="btn btn-secondary btn-sm" onclick="regenerateClusterKeyDirect()" title="Сгенерировать новый SHA-256 ключ">🎲</button>
+          </div>
+        </div>
+
+        <div class="cluster-peers-grid" id="clusterPeersContainer">
+          <!-- Dynamic Peer Cards rendered in JS -->
+        </div>
+      </section>
+
+      <!-- Live Chart & Health Matrix with Timeframe Filter -->
+      <section class="card chart-section">
+        <div class="card-header">
+          <div class="chart-header-left">
+            <h3>Мониторинг задержек в реальном времени</h3>
+            <div class="timeframe-selector">
+              <button class="tf-btn active" id="tf15m" onclick="setTelemetryRange('15m')">15 мин</button>
+              <button class="tf-btn" id="tf1h" onclick="setTelemetryRange('1h')">1 час</button>
+              <button class="tf-btn" id="tf12h" onclick="setTelemetryRange('12h')">12 часов</button>
+              <button class="tf-btn" id="tf7d" onclick="setTelemetryRange('7d')">1 неделя</button>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-secondary btn-sm" onclick="pingAllNodes()">🔄 Пинг всех нод</button>
+            <button class="btn btn-secondary btn-sm" onclick="triggerSimulatedLag()">⚡ Симуляция лага</button>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="telemetryChart"></canvas>
+        </div>
+      </section>
+
+      <!-- VPN Outbound Nodes List -->
+      <section class="card nodes-section">
+        <div class="card-header">
+          <h3>Подключенные VPN / Proxy сервера</h3>
+          <span class="badge" id="countryCountBadge">0 стран</span>
+        </div>
+        <div id="nodesContainer" class="nodes-container">
+          <!-- Dynamic Node Cards rendered via JS -->
+        </div>
+      </section>
+
+      <!-- Active Sockets / Connections Table -->
+      <section class="card sockets-section">
+        <div class="card-header">
+          <h3>Anti-Lag Engine Active (Активные сокеты)</h3>
+          <span class="badge blue-badge">Real-time Dynamic Monitor</span>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Target / Login</th>
+                <th>Port</th>
+                <th>Protocol</th>
+                <th>Выходящий VPN узел</th>
+                <th>Страна</th>
+                <th>Трафик (⬇️ Скачано / ⬆️ Отдано)</th>
+                <th>Время онлайн (Uptime)</th>
+                <th>Статус маршрута</th>
+              </tr>
+            </thead>
+            <tbody id="socketsTableBody">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Telegram Proxy Export Modal -->
+  <div class="modal-overlay" id="telegramExportModal">
+    <div class="modal-card" style="max-width:600px;">
+      <div class="modal-header">
+        <h2>✈️ Экспорт прокси для Telegram</h2>
+        <button class="close-btn" onclick="closeTelegramExportModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); color:#38bdf8; padding:10px 14px; border-radius:10px; font-size:12px; margin-bottom:14px; line-height:1.5;">
+          💡 <strong>Важно для Telegram:</strong> Мессенджер Telegram поддерживает <u>ТОЛЬКО SOCKS5 прокси</u> (HTTP прокси Telegram не использует). Ниже показаны ссылки формата <code>https://t.me/socks?...</code> и <code>tg://socks?...</code>, которые открываются в Telegram на iOS, Android и ПК в 1 клик!
+        </div>
+
+        <div class="form-group">
+          <label>Выберите входящее SOCKS5 подключение</label>
+          <select id="tgInboundSelect" class="form-input" onchange="updateTelegramProxyPreview()">
+            <!-- Dynamic Dropdown Options in JS -->
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label>Внешний IP адрес или домен вашего сервера</label>
+          <input type="text" id="tgServerHostInput" class="form-input" placeholder="например: 2.26.81.50 или my-vpn.net" oninput="updateTelegramProxyPreview()">
+        </div>
+
+        <div class="form-group" style="margin-top:14px;">
+          <label style="color:#06b6d4;">Стандартная 1-click ссылка Telegram (t.me/socks):</label>
+          <div class="inbound-preview-box">
+            <span id="tgSocksLinkPreview">https://t.me/socks?...</span>
+            <button class="btn btn-secondary btn-sm" onclick="copyTelegramProxyLink('tgSocksLinkPreview')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:10px;">
+          <label style="color:#a5b4fc;">Прямая ссылка приложения Telegram (tg://socks):</label>
+          <div class="inbound-preview-box">
+            <span id="tgAppSocksLinkPreview">tg://socks?...</span>
+            <button class="btn btn-secondary btn-sm" onclick="copyTelegramProxyLink('tgAppSocksLinkPreview')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:10px;">
+          <label style="color:#9ca3af;">Альтернативная ссылка Telegram (t.me/proxy):</label>
+          <div class="inbound-preview-box">
+            <span id="tgProxyLinkPreview">https://t.me/proxy?...</span>
+            <button class="btn btn-secondary btn-sm" onclick="copyTelegramProxyLink('tgProxyLinkPreview')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeTelegramExportModal()">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive HTTP & SOCKS Inbound Proxy Configuration Modal -->
+  <div class="modal-overlay" id="inboundsConfigModal">
+    <div class="modal-card" style="max-width:720px;">
+      <div class="modal-header">
+        <h2>🔀 Конфигурация HTTP / SOCKS Прокси</h2>
+        <button class="close-btn" onclick="closeInboundsConfigModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">
+          Настройте порты, логины и пароли для входящих подключений. Порты автоматически открываются в фаерволе сервера (ufw/iptables)!
+        </p>
+
+        <div id="inboundsListContainer" style="display:flex; flex-direction:column; gap:16px; margin-top:14px;">
+          <!-- Dynamic Inbound Cards rendered in JS -->
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content:space-between;">
+        <button class="btn btn-secondary" onclick="openAddInboundModal()">+ Добавить ещё прокси (HTTP / SOCKS)</button>
+        <button class="btn btn-primary" onclick="closeInboundsConfigModal()">Готово</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add New Inbound Modal -->
+  <div class="modal-overlay" id="addInboundModal">
+    <div class="modal-card" style="max-width:440px;">
+      <div class="modal-header">
+        <h2>+ Добавление входящего прокси портов</h2>
+        <button class="close-btn" onclick="closeAddInboundModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Тип протокола</label>
+          <select id="newInboundType" class="form-input">
+            <option value="socks5">SOCKS5 Прокси</option>
+            <option value="http">HTTP Прокси</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label>Порт прокси</label>
+          <input type="number" id="newInboundPort" class="form-input" placeholder="1082">
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label>Логин (Username)</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="newInboundUser" class="form-input" placeholder="например: usr_aK8xP2mQ9z">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="generateNewInboundUsernameDirect()" title="Сгенерировать случайный логин">🎲 Логин</button>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label>Пароль (Password)</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="newInboundPass" class="form-input" placeholder="например: X-Y7+0WBuF5" style="font-family:'JetBrains Mono', monospace;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="generateNewInboundPasswordDirect()" title="Сгенерировать случайный пароль">🎲 Пароль</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeAddInboundModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="submitAddInbound()">Создать прокси</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Panel Auth Modal -->
+  <div class="modal-overlay" id="adminAuthModal">
+    <div class="modal-card" style="max-width:440px;">
+      <div class="modal-header">
+        <h2>🔐 Пароль Панели Управления</h2>
+        <button class="close-btn" onclick="closeAdminAuthModal()">&times;</button>
+      </div>
+      <form action="javascript:void(0)" onsubmit="submitAdminAuth()" method="post" autocomplete="on">
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="adminUsernameInput">Логин администратора (Username)</label>
+            <input type="text" name="username" id="adminUsernameInput" class="form-input" placeholder="admin" autocomplete="username" required>
+          </div>
+          <div class="form-group" style="margin-top:12px;">
+            <label for="adminPasswordInput">Новый пароль панели (Password)</label>
+            <div style="display:flex; gap:8px;">
+              <input type="text" name="password" id="adminPasswordInput" class="form-input" placeholder="Введите или сгенерируйте" style="font-family:'JetBrains Mono', monospace;" autocomplete="new-password" required>
+              <button class="btn btn-secondary" type="button" onclick="generateAdminPasswordDirect()" style="white-space:nowrap;">🎲 Сгенерировать</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" type="button" onclick="closeAdminAuthModal()">Отмена</button>
+          <button class="btn btn-primary" type="submit">Сохранить пароль</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Mandatory Login Modal -->
+  <div class="modal-overlay" id="loginModal">
+    <div class="modal-card" style="max-width:400px;">
+      <div class="modal-header">
+        <h2>🔐 Вход в AntiLag Router</h2>
+      </div>
+      <form action="javascript:void(0)" onsubmit="submitLogin()" method="post">
+        <div class="modal-body">
+          <p style="font-size:13px; color:#9ca3af; margin-bottom:12px;">
+            Введите логин и пароль для доступа к панели управления. При первом входе: <code>admin / admin</code>.
+          </p>
+          <div class="form-group">
+            <label for="loginUsernameInput">Логин</label>
+            <input type="text" name="username" id="loginUsernameInput" class="form-input" placeholder="admin" value="admin" autocomplete="username" required>
+          </div>
+          <div class="form-group" style="margin-top:12px;">
+            <label for="loginPasswordInput">Пароль</label>
+            <input type="password" name="password" id="loginPasswordInput" class="form-input" placeholder="Пароль" value="admin" autocomplete="current-password" required>
+          </div>
+          <div id="loginErrorMsg" style="color:var(--neon-red); font-size:12px; margin-top:8px; display:none;"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" type="submit" style="width:100%;">Войти в панель</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Mandatory First Login Change Password Modal -->
+  <div class="modal-overlay" id="forceChangePassModal">
+    <div class="modal-card" style="max-width:440px;">
+      <div class="modal-header">
+        <h2>⚠️ Обязательная смена пароля</h2>
+      </div>
+      <form action="javascript:void(0)" onsubmit="submitForceChangePassword()" method="post">
+        <div class="modal-body">
+          <p style="font-size:13px; color:#f87171; margin-bottom:12px;">
+            Вы вошли со стандартным паролем (<code>admin</code>). Для защиты сервера необходимо установить свой или сгенерировать новый пароль!
+          </p>
+          <div class="form-group">
+            <label for="forceUsernameInput">Логин администратора</label>
+            <input type="text" name="username" id="forceUsernameInput" class="form-input" value="admin" autocomplete="username" required>
+          </div>
+          <div class="form-group" style="margin-top:12px;">
+            <label for="forcePasswordInput">Новый безопасный пароль</label>
+            <div style="display:flex; gap:8px;">
+              <input type="text" name="password" id="forcePasswordInput" class="form-input" placeholder="Придумайте пароль" style="font-family:'JetBrains Mono', monospace;" autocomplete="new-password" required>
+              <button class="btn btn-secondary" type="button" onclick="generateForcePasswordDirect()">🎲 Сгенерировать</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" type="submit" style="width:100%;">Сохранить пароль и войти</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Secret Settings Modal -->
+  <div class="modal-overlay" id="secretSettingsModal">
+    <div class="modal-card" style="max-width:440px;">
+      <div class="modal-header">
+        <h2>Настройка секретного пути доступа</h2>
+        <button class="close-btn" onclick="closeSecretSettingsModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">
+          Прямой доступ к коренному URL <code>/</code> выдает посторонним сканерам **Nginx 404 Camouflage Page**.
+          Доступ к панели возможен только через ваш секретный путь.
+        </p>
+        <div class="form-group" style="margin-top:12px;">
+          <label>Секретный путь (URL Path)</label>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="secretPathInput" class="form-input" placeholder="secret-admin-777">
+            <button class="btn btn-secondary" type="button" onclick="generateSecretPathDirect()" style="white-space:nowrap;">🎲 Сгенерировать</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeSecretSettingsModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="submitSecretPath()">Сохранить путь</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mode Info Modal -->
+  <div class="modal-overlay" id="modeInfoModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>ℹ️ Справка: Режимы балансировки AntiLag</h2>
+        <button class="close-btn" onclick="closeModeInfoModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="font-size:14px; line-height:1.6; color:#d1d5db;">
+        <h4 style="color:#6366f1; margin-bottom:6px;">🛡️ Игровой режим (Gaming Mode):</h4>
+        <p style="margin-bottom:14px;">
+          Предназначен для сессий в онлайн-играх (CS2, Valorant, Dota 2, GTA V, Apex), где смена IP во время матча приводит к кику с игрового сервера.
+          Программа удерживает выходящий IP-адрес для сессии до последнего и переключает на резервный сервер только при реальном отвале (>2.5 сек).
+        </p>
+
+        <h4 style="color:#06b6d4; margin-bottom:6px;">⚡ Веб / Стриминг (Fast Switch):</h4>
+        <p>
+          Предназначен для мгновенной загрузки веб-страниц, видео и тяжелого контента. При появлении микро-джиттера (>150мс) или потерь пакетов (>10%) балансировщик агрессивно перенаправляет новые сессии за ~50 мс на самый быстрый сервер в реальном времени.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeModeInfoModal()">Понятно</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export Subscriptions Modal -->
+  <div class="modal-overlay" id="exportModal">
+    <div class="modal-card" style="max-width:620px;">
+      <div class="modal-header">
+        <h2>🔗 Экспорт ссылок и подписок для клиентов</h2>
+        <button class="close-btn" onclick="closeExportModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">
+          Вы можете скопировать единые подписки или конфигурации всех активных прокси и VPN-серверов для отправки клиентам:
+        </p>
+        
+        <div class="form-group" style="margin-top:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <label style="margin:0;">Локальные SOCKS5 / HTTP прокси адреса для клиентов</label>
+            <button class="btn btn-secondary btn-sm" onclick="copyClientSocksProxies()" style="padding:2px 8px; font-size:11px;">📋 Скопировать прокси</button>
+          </div>
+          <textarea id="clientSocksExportArea" readonly rows="4" style="font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--neon-cyan);"></textarea>
+        </div>
+
+        <div class="form-group" style="margin-top:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <label style="margin:0;">Список всех сбалансированных VPN-ссылок</label>
+            <button class="btn btn-secondary btn-sm" onclick="copyExportLinks()" style="padding:2px 8px; font-size:11px;">📋 Скопировать VPN</button>
+          </div>
+          <textarea id="exportTextarea" readonly rows="6" style="font-family:'JetBrains Mono', monospace; font-size:12px;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeExportModal()">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Modal -->
+  <div class="modal-overlay" id="importModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Импорт ссылок и подписок VPN</h2>
+        <button class="close-btn" onclick="closeImportModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:12px;">
+          <label>Выбор страны назначения (необязательно)</label>
+          <select id="importCountrySelect" class="form-input" onchange="onImportCountrySelectChange()">
+            <option value="AUTO">🌐 Автоопределение (GeoIP)</option>
+            <option value="DE|Germany|🇩🇪">🇩🇪 Германия (Germany)</option>
+            <option value="NL|Netherlands|🇳🇱">🇳🇱 Нидерланды (Netherlands)</option>
+            <option value="US|United States|🇺🇸">🇺🇸 США (United States)</option>
+            <option value="FI|Finland|🇫🇮">🇫🇮 Финляндия (Finland)</option>
+            <option value="SG|Singapore|🇸🇬">🇸🇬 Сингапур (Singapore)</option>
+            <option value="PL|Poland|🇵🇱">🇵🇱 Польша (Poland)</option>
+            <option value="RU|Russia|🇷🇺">🇷🇺 Россия (Russia)</option>
+            <option value="CUSTOM">✏️ Своя страна...</option>
+          </select>
+        </div>
+
+        <div id="customImportCountryRow" style="display:none; margin-bottom:12px;" class="form-row">
+          <div style="flex:1;">
+            <label>Название страны</label>
+            <input type="text" id="importCustomCountryName" class="form-input" placeholder="например: Sweden">
+          </div>
+          <div style="flex:1;">
+            <label>Код (2 буквы)</label>
+            <input type="text" id="importCustomCountryCode" class="form-input" placeholder="SE" maxlength="2">
+          </div>
+          <div style="flex:1;">
+            <label>Флаг (Emoji)</label>
+            <input type="text" id="importCustomFlag" class="form-input" placeholder="🇸🇪">
+          </div>
+        </div>
+
+        <p class="modal-hint">
+          Вставьте ссылки в формате <code>vless://</code>, <code>vmess://</code>, <code>ss://</code>, <code>trojan://</code>, <code>hysteria2://</code>, <code>wg://</code>, <code>naive+https://</code> или подписки (Base64).
+        </p>
+        <textarea id="importTextarea" placeholder="vless://...&#10;hysteria2://...&#10;naive+https://...&#10;ss://..." rows="7"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeImportModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="submitParseLinks()">Разобрать и добавить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Cluster Peer Modal -->
+  <div class="modal-overlay" id="addPeerModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Синхронизация с узлом кластера (SHA-256)</h2>
+        <button class="close-btn" onclick="closeAddPeerModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>URL адрес второго/третьего сервера</label>
+          <input type="text" id="peerUrlInput" class="form-input" placeholder="http://194.168.1.50:8080">
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label>SHA-256 Ключ Кластера целевого сервера (64 символа)</label>
+          <input type="text" id="peerClusterKeyInput" class="form-input" placeholder="Вставьте скопированный SHA-256 ключ целевого сервера" style="font-family:'JetBrains Mono', monospace;">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeAddPeerModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="submitAddPeer()">Подключить ноду</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Node Modal -->
+  <div class="modal-overlay" id="editNodeModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Редактирование подключения / физического сервера</h2>
+        <button class="close-btn" onclick="closeEditNodeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editNodeId">
+        <div class="form-group">
+          <label>Название подключения</label>
+          <input type="text" id="editNodeName" class="form-input" placeholder="Название сервера">
+        </div>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label>Физическая группа / Имя физического сервера (например: Сервер 1)</label>
+          <input type="text" id="editServerGroup" class="form-input" placeholder="например: Frankfurt-Node-01 или Сервер 1">
+        </div>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label>Выбор из доступных / существующих стран</label>
+          <select id="editPresetCountrySelect" class="form-input" onchange="onEditPresetCountryChange()">
+            <!-- Dynamic dropdown options rendered in JS -->
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label>Название страны</label>
+          <input type="text" id="editCountryName" class="form-input" placeholder="например: Germany, Netherlands, Russia">
+        </div>
+        <div class="form-row" style="display:flex; gap:12px; margin-top:12px;">
+          <div style="flex:1;">
+            <label>Код страны (2 буквы)</label>
+            <input type="text" id="editCountryCode" class="form-input" placeholder="DE, NL, RU" maxlength="2">
+          </div>
+          <div style="flex:1;">
+            <label>Флаг (Emoji)</label>
+            <input type="text" id="editNodeFlag" class="form-input" placeholder="🇩🇪, 🇳🇱, 🇷🇺">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeEditNodeModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="submitEditNode()">Сохранить изменения</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
