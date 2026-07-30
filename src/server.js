@@ -3,6 +3,7 @@ const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
 const WebSocket = require('ws');
+const { exec } = require('child_process');
 
 const AntiLagBalancer = require('./balancer');
 const HealthCheckEngine = require('./healthcheck');
@@ -576,6 +577,25 @@ rules:
 
   res.setHeader('Content-Type', 'text/yaml; charset=utf-8');
   res.send(yamlContent);
+});
+
+// POST /api/system/update - Trigger 1-Click Automated GitHub System Update & Service Restart
+app.post('/api/system/update', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Автоматическое обновление системы AntiLag из GitHub запущено! Панель подтянет свежие обновления и перезапустится через 5-8 секунд.'
+  });
+
+  setTimeout(() => {
+    console.log('🔄 [System Auto-Update] Initiating background git pull & service restart...');
+    const updateCmd = `cd /opt/antilag && git stash && git pull origin main && npm install --omit=dev && systemctl restart antilag`;
+    exec(updateCmd, (err, stdout, stderr) => {
+      if (err) {
+        console.error('⚠️ [System Auto-Update Error]', err.message);
+        exec(`curl -sSL https://raw.githubusercontent.com/RTDOS/balancer123/main/install.sh | bash -s -- --auto`, () => {});
+      }
+    });
+  }, 1000);
 });
 
 // POST /api/mode

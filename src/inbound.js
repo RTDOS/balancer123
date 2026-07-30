@@ -277,7 +277,8 @@ class InboundProxyManager {
           const route = this.balancer.routeConnection(targetHost, targetPort, 'TUIC', {
             socketId,
             user: authenticatedUser,
-            displayTarget: targetHost
+            displayTarget: targetHost,
+            inboundPort: config.port
           });
 
           this.onStateChange();
@@ -382,7 +383,8 @@ class InboundProxyManager {
           const route = this.balancer.routeConnection(targetHost, targetPort, 'VLESS', {
             socketId,
             user: authenticatedUser,
-            displayTarget
+            displayTarget,
+            inboundPort: config.port
           });
 
           this.onStateChange();
@@ -518,7 +520,8 @@ class InboundProxyManager {
         const route = this.balancer.routeConnection(targetHost, targetPort, 'SOCKS5', {
           socketId,
           user: authenticatedUser,
-          displayTarget
+          displayTarget,
+          inboundPort: config.port
         });
 
         this.onStateChange();
@@ -617,7 +620,8 @@ class InboundProxyManager {
       const route = this.balancer.routeConnection(targetHost, targetPort, 'HTTP', {
         socketId,
         user: authenticatedUser,
-        displayTarget
+        displayTarget,
+        inboundPort: config.port
       });
 
       this.onStateChange();

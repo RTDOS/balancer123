@@ -83,11 +83,26 @@ echo -e "2) ${YELLOW}🔒 Сверхзащищенный SSH-Туннель (127
 echo -e "   Панель слушает исключительно локальный адрес и НЕВИДИМА для сканеров."
 echo -e "   Подключение происходит через SSH-туннель: ssh -L 8080:127.0.0.1:8080 root@${PUBLIC_IP}\n"
 
-# Force input reading from TTY so pipe execution (curl | bash) waits for user choice!
-if [ -t 0 ]; then
-  read -p "Введите номер режима [1 или 2] (По умолчанию 1): " BIND_CHOICE
+# Auto-detect existing systemd configuration mode if upgrading!
+AUTO_MODE=""
+if [ -f "/etc/systemd/system/antilag.service" ]; then
+  if grep -q "127.0.0.1" /etc/systemd/system/antilag.service; then
+    AUTO_MODE="2"
+  elif grep -q "0.0.0.0" /etc/systemd/system/antilag.service; then
+    AUTO_MODE="1"
+  fi
+fi
+
+if [ "$1" = "--auto" ] || [ -n "$AUTO_MODE" ]; then
+  BIND_CHOICE="${AUTO_MODE:-1}"
+  echo -e "${GREEN}ℹ️ Обнаружен существующий режим работы (${BIND_CHOICE}). Автоматическое применение...${NC}"
 else
-  read -p "Введите номер режима [1 или 2] (По умолчанию 1): " BIND_CHOICE < /dev/tty || BIND_CHOICE="1"
+  # Force input reading from TTY for fresh installation!
+  if [ -t 0 ]; then
+    read -p "Введите номер режима [1 или 2] (По умолчанию 1): " BIND_CHOICE
+  else
+    read -p "Введите номер режима [1 или 2] (По умолчанию 1): " BIND_CHOICE < /dev/tty || BIND_CHOICE="1"
+  fi
 fi
 
 if [ "$BIND_CHOICE" = "2" ]; then

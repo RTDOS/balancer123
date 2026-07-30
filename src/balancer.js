@@ -196,6 +196,7 @@ class AntiLagBalancer {
       targetIp: displayTarget,
       targetPort,
       protocol,
+      inboundPort: meta.inboundPort || 1080,
       user: meta.user || '',
       bytesRead: 0,
       bytesWritten: 0,

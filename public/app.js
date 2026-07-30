@@ -382,32 +382,154 @@ function moveCountry(countryName, direction) {
     });
 }
 
-function renderSocketsTable(sockets) {
-  const tbody = document.getElementById('socketsTableBody');
-  if (sockets.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#9ca3af;">Ожидание подключений...</td></tr>`;
-    return;
+let currentTrafficView = 'targets'; // 'targets' | 'ports'
+let currentStatCardMode = 'sockets'; // 'sockets' | 'inboundPorts'
+let latestSocketsList = [];
+let prevTrafficSnapshot = new Map(); // port -> { bytes, time }
+
+function switchTrafficTableView(view) {
+  currentTrafficView = view;
+
+  const targetsBtn = document.getElementById('viewTargetsBtn');
+  const portsBtn = document.getElementById('viewPortsBtn');
+  const title = document.getElementById('trafficTableTitle');
+
+  if (view === 'targets') {
+    if (targetsBtn) targetsBtn.classList.add('active');
+    if (portsBtn) portsBtn.classList.remove('active');
+    if (title) title.innerText = 'Anti-Lag Engine Active (Активные сокеты)';
+  } else {
+    if (portsBtn) portsBtn.classList.add('active');
+    if (targetsBtn) targetsBtn.classList.remove('active');
+    if (title) title.innerText = 'Входящие подключения к панели (Порты / Протоколы)';
   }
 
-  tbody.innerHTML = sockets.map(s => {
-    const uptimeStr = formatDuration(Date.now() - (s.startTimestamp || Date.now()));
-    const downStr = formatBytes(s.bytesRead || 0);
-    const upStr = formatBytes(s.bytesWritten || 0);
-    const targetText = formatTargetName(s.targetIp || s.user);
+  renderSocketsTable(latestSocketsList || []);
+}
 
-    return `
-      <tr>
-        <td><strong>${targetText}</strong></td>
-        <td>${s.targetPort}</td>
-        <td><span class="node-protocol">${s.protocol}</span></td>
-        <td>${s.nodeFlag} ${s.nodeName}</td>
-        <td>${s.nodeFlag} ${s.countryName || 'Auto'}</td>
-        <td><span style="font-family:'JetBrains Mono', monospace; font-size:12px; color:#38bdf8;">⬇️ ${downStr}</span> | <span style="font-family:'JetBrains Mono', monospace; font-size:12px; color:#a5b4fc;">⬆️ ${upStr}</span></td>
-        <td><strong class="uptime-counter" data-start="${s.startTimestamp || Date.now()}">${uptimeStr}</strong></td>
-        <td><span style="color:#10b981;">● Active (AntiLag)</span></td>
-      </tr>
-    `;
-  }).join('');
+function toggleActiveConnectionsStatMode() {
+  currentStatCardMode = (currentStatCardMode === 'sockets') ? 'inboundPorts' : 'sockets';
+  updateActiveConnectionsStatDisplay();
+}
+
+function updateActiveConnectionsStatDisplay() {
+  const labelEl = document.getElementById('activeConnectionsStatLabel');
+  const valueEl = document.getElementById('activeSocketsCount');
+
+  const socketsCount = (latestSocketsList || []).length;
+  
+  const activePorts = new Set((latestSocketsList || []).map(s => s.inboundPort || s.port).filter(Boolean));
+  const activePortsCount = activePorts.size;
+  const totalInboundPortsCount = currentInboundsList ? currentInboundsList.length : 0;
+
+  if (currentStatCardMode === 'sockets') {
+    if (labelEl) labelEl.innerText = 'Активные сокеты 🔄';
+    if (valueEl) valueEl.innerText = socketsCount;
+  } else {
+    if (labelEl) labelEl.innerText = 'Активные порты 🔄';
+    if (valueEl) valueEl.innerText = `${activePortsCount} из ${totalInboundPortsCount} активн.`;
+  }
+}
+
+function renderSocketsTable(sockets) {
+  latestSocketsList = sockets || [];
+  updateActiveConnectionsStatDisplay();
+
+  const thead = document.getElementById('socketsTableHead');
+  const tbody = document.getElementById('socketsTableBody');
+
+  if (currentTrafficView === 'targets') {
+    if (thead) {
+      thead.innerHTML = `
+        <tr>
+          <th>Target / Login</th>
+          <th>Port</th>
+          <th>Protocol</th>
+          <th>Выходящий VPN узел</th>
+          <th>Страна</th>
+          <th>Трафик (⬇️ Скачано / ⬆️ Отдано)</th>
+          <th>Время онлайн (Uptime)</th>
+          <th>Статус маршрута</th>
+        </tr>
+      `;
+    }
+
+    if (!sockets || sockets.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#9ca3af;">Ожидание подключений...</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = sockets.map(s => {
+      const uptimeStr = formatDuration(Date.now() - (s.startTimestamp || Date.now()));
+      const downStr = formatBytes(s.bytesRead || 0);
+      const upStr = formatBytes(s.bytesWritten || 0);
+      const targetText = formatTargetName(s.targetIp || s.user);
+
+      return `
+        <tr>
+          <td><strong>${targetText}</strong></td>
+          <td>${s.targetPort || 443}</td>
+          <td><span class="node-protocol">${s.protocol || 'SOCKS5'}</span></td>
+          <td>${s.nodeFlag || '🌐'} ${s.nodeName || 'Direct'}</td>
+          <td>${s.nodeFlag || '🌐'} ${s.countryName || 'Auto'}</td>
+          <td><span style="font-family:'JetBrains Mono', monospace; font-size:12px; color:#38bdf8;">⬇️ ${downStr}</span> | <span style="font-family:'JetBrains Mono', monospace; font-size:12px; color:#a5b4fc;">⬆️ ${upStr}</span></td>
+          <td><strong class="uptime-counter" data-start="${s.startTimestamp || Date.now()}">${uptimeStr}</strong></td>
+          <td><span style="color:#10b981;">● Active (AntiLag)</span></td>
+        </tr>
+      `;
+    }).join('');
+  } else {
+    // VIEW B: INBOUND PROXY PORTS & PROTOCOLS
+    if (thead) {
+      thead.innerHTML = `
+        <tr>
+          <th>Входящий прокси порт</th>
+          <th>Протокол</th>
+          <th>UUID / Логин клиентов</th>
+          <th>Активных сокетов</th>
+          <th>Скорость передачи (Speed)</th>
+          <th>Суммарный трафик (⬇️ / ⬆️)</th>
+          <th>Статус порт-листнера</th>
+        </tr>
+      `;
+    }
+
+    if (!currentInboundsList || currentInboundsList.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#9ca3af;">Нет настроенных входящих прокси портов</td></tr>`;
+      return;
+    }
+
+    const now = Date.now();
+
+    tbody.innerHTML = currentInboundsList.map(inb => {
+      const port = inb.port;
+      const portSockets = (sockets || []).filter(s => (s.inboundPort == port) || (s.protocol && s.protocol.toLowerCase() === inb.type.toLowerCase()));
+      
+      const totalDown = portSockets.reduce((sum, s) => sum + (s.bytesRead || 0), 0);
+      const totalUp = portSockets.reduce((sum, s) => sum + (s.bytesWritten || 0), 0);
+
+      const prevData = prevTrafficSnapshot.get(port) || { bytes: totalDown, time: now - 1500 };
+      const deltaBytes = Math.max(0, totalDown - prevData.bytes);
+      const deltaTimeSec = Math.max(0.5, (now - prevData.time) / 1000);
+      const speedBps = deltaBytes / deltaTimeSec;
+      prevTrafficSnapshot.set(port, { bytes: totalDown, time: now });
+
+      const speedStr = speedBps > 0 ? `${formatBytes(speedBps)}/s` : '0 B/s';
+      const userText = inb.username || 'Без логина';
+
+      return `
+        <tr>
+          <td><strong>${inb.name} (Port ${port})</strong></td>
+          <td><span class="inbound-badge ${inb.type}">${inb.type.toUpperCase()}</span></td>
+          <td><code style="font-family:'JetBrains Mono', monospace; font-size:11px; color:#a5b4fc;">${userText}</code></td>
+          <td><strong style="color:#38bdf8;">${portSockets.length} сокет(ов)</strong></td>
+          <td><span style="font-family:'JetBrains Mono', monospace; font-weight:600; color:${speedBps > 0 ? '#10b981' : '#9ca3af'};">⚡ ${speedStr}</span></td>
+          <td><span style="font-family:'JetBrains Mono', monospace; font-size:12px; color:#38bdf8;">⬇️ ${formatBytes(totalDown)}</span> | <span style="font-family:'JetBrains Mono', monospace; font-size:12px; color:#a5b4fc;">⬆️ ${formatBytes(totalUp)}</span></td>
+          <td><span style="color:#10b981;">● Listening (Port ${port})</span></td>
+        </tr>
+      `;
+    }).join('');
+  }
 }
 
 function renderClusterPeers(clusterData) {
@@ -1232,4 +1354,43 @@ function pingAllNodes() {
     body: JSON.stringify({ targetIp: '8.8.8.8' })
   }).then(res => res.json())
     .then(() => alert('Проверка всех нод выполнена!'));
+}
+
+function triggerSystemUpdate() {
+  if (!confirm('Вы действительно хотите автоматически обновить AntiLag до последней версии из GitHub?')) {
+    return;
+  }
+
+  const modal = document.getElementById('systemUpdateModal');
+  const countEl = document.getElementById('updateCountdownSec');
+  const barEl = document.getElementById('updateProgressBar');
+
+  if (modal) modal.classList.add('open');
+
+  let seconds = 8;
+  if (countEl) countEl.innerText = seconds;
+  if (barEl) barEl.style.width = '10%';
+
+  fetch('/api/system/update', { method: 'POST' })
+    .then(res => res.json())
+    .then(data => {
+      console.log('🔄 System update triggered:', data.message);
+    })
+    .catch(err => {
+      console.error('⚠️ System update error:', err);
+    });
+
+  const interval = setInterval(() => {
+    seconds--;
+    if (countEl) countEl.innerText = seconds;
+    if (barEl) {
+      const progress = Math.min(100, Math.floor(((8 - seconds) / 8) * 100));
+      barEl.style.width = `${progress}%`;
+    }
+
+    if (seconds <= 0) {
+      clearInterval(interval);
+      window.location.reload();
+    }
+  }, 1000);
 }

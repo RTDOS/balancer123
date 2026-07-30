@@ -31,6 +31,9 @@
         <button class="btn btn-secondary btn-sm" onclick="openInboundsConfigModal()" title="Настройка входящих прокси подключений">
           🔀 Конфигурация Прокси
         </button>
+        <button class="btn btn-secondary btn-sm" onclick="triggerSystemUpdate()" title="Автоматическое обновление AntiLag из GitHub в 1 клик" style="background:rgba(99,102,241,0.18); border-color:rgba(99,102,241,0.4); color:#a5b4fc;">
+          🔄 Обновить систему
+        </button>
         <button class="btn btn-secondary btn-sm" onclick="openAdminAuthModal()" title="Пароль доступа к веб-панели">
           🔐 Пароль Панели
         </button>
@@ -113,10 +116,10 @@
               <span class="stat-value" id="totalConnections">0</span>
             </div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" id="activeConnectionsStatCard" onclick="toggleActiveConnectionsStatMode()" style="cursor:pointer; transition:transform 0.15s ease;" title="Нажмите для переключения: Активные сокеты / Подключения к панели">
             <div class="stat-icon cyan">⚡</div>
             <div class="stat-content">
-              <span class="stat-label">Активные соединения</span>
+              <span class="stat-label" id="activeConnectionsStatLabel">Активные сокеты 🔄</span>
               <span class="stat-value" id="activeSocketsCount">0</span>
             </div>
           </div>
@@ -188,13 +191,19 @@
 
       <!-- Active Sockets / Connections Table -->
       <section class="card sockets-section">
-        <div class="card-header">
-          <h3>Anti-Lag Engine Active (Активные сокеты)</h3>
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <h3 id="trafficTableTitle" style="margin:0;">Anti-Lag Engine Active (Активные сокеты)</h3>
+            <div class="view-tab-group">
+              <button class="view-tab-btn active" id="viewTargetsBtn" onclick="switchTrafficTableView('targets')">🌐 Активные сокеты сайтов</button>
+              <button class="view-tab-btn" id="viewPortsBtn" onclick="switchTrafficTableView('ports')">🔌 Подключения к панели (Порты / Протоколы)</button>
+            </div>
+          </div>
           <span class="badge blue-badge">Real-time Dynamic Monitor</span>
         </div>
         <div class="table-responsive">
           <table class="data-table">
-            <thead>
+            <thead id="socketsTableHead">
               <tr>
                 <th>Target / Login</th>
                 <th>Port</th>
@@ -643,6 +652,21 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeEditNodeModal()">Отмена</button>
         <button class="btn btn-primary" onclick="submitEditNode()">Сохранить изменения</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 1-Click System Update Modal -->
+  <div class="modal-overlay" id="systemUpdateModal">
+    <div class="modal-card" style="max-width:480px; text-align:center; padding:28px 24px;">
+      <div style="font-size:46px; margin-bottom:12px; display:inline-block; animation: spin 2s linear infinite;">🔄</div>
+      <h2 style="font-size:18px; color:#38bdf8; margin-bottom:8px;">Выполняется обновление AntiLag из GitHub...</h2>
+      <p style="font-size:13px; color:#9ca3af; line-height:1.5; margin-bottom:18px;">
+        Система автоматически подтягивает свежие обновления из GitHub и перезапускает службу.<br>
+        Панель перезапустится через <strong id="updateCountdownSec" style="color:#10b981; font-size:16px;">8</strong> сек.
+      </p>
+      <div style="background:rgba(255,255,255,0.06); border-radius:10px; height:10px; overflow:hidden; border:1px solid rgba(255,255,255,0.12);">
+        <div id="updateProgressBar" style="width:0%; height:100%; background:linear-gradient(90deg, #6366f1, #06b6d4, #10b981); transition:width 1s linear;"></div>
       </div>
     </div>
   </div>
