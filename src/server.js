@@ -168,6 +168,12 @@ app.use((req, res, next) => {
     req.url = subPath;
     return express.static(publicDirPath)(req, res, next);
   }
+
+  // Fallback serve static assets (.css, .js, icons)
+  if (req.path.endsWith('.css') || req.path.endsWith('.js') || req.path.endsWith('.png') || req.path.endsWith('.ico') || req.path.endsWith('.woff2')) {
+    return express.static(publicDirPath)(req, res, next);
+  }
+
   next();
 });
 

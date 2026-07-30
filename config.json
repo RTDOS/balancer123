@@ -39,7 +39,7 @@
       "countryName": "Germany",
       "flag": "🇩🇪",
       "status": "active",
-      "ping": 48,
+      "ping": 49,
       "jitter": 0,
       "lossRatio": 0
     },
@@ -54,7 +54,7 @@
       "countryName": "Germany",
       "flag": "🇩🇪",
       "status": "active",
-      "ping": 27,
+      "ping": 34,
       "jitter": 2,
       "lossRatio": 0
     },
@@ -69,8 +69,8 @@
       "countryName": "Germany",
       "flag": "🇩🇪",
       "status": "active",
-      "ping": 45,
-      "jitter": 1,
+      "ping": 28,
+      "jitter": 3,
       "lossRatio": 0
     },
     {
@@ -84,7 +84,7 @@
       "countryName": "United Kingdom",
       "flag": "🇬🇧",
       "status": "active",
-      "ping": 26,
+      "ping": 28,
       "jitter": 0,
       "lossRatio": 0
     },
@@ -99,8 +99,8 @@
       "countryName": "Singapore",
       "flag": "🇸🇬",
       "status": "active",
-      "ping": 25,
-      "jitter": 2,
+      "ping": 26,
+      "jitter": 1,
       "lossRatio": 0
     },
     {
@@ -114,7 +114,7 @@
       "countryName": "Poland",
       "flag": "🇵🇱",
       "status": "active",
-      "ping": 45,
+      "ping": 35,
       "jitter": 3,
       "lossRatio": 0
     }
