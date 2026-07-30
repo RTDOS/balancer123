@@ -1,6 +1,6 @@
 /**
  * AntiLag VPN Router & Load Balancer State Manager
- * Handles Gaming Mode (Sticky IP), Web Mode (Fast Switch), Target IP Affinity, Parallel Racing, and Country Group Ordering.
+ * Handles Gaming Mode (Sticky IP), Web Mode (Fast Switch), Target IP Affinity, Parallel Racing, Country Group Ordering, and Real-time Socket Traffic Monitoring.
  */
 
 class AntiLagBalancer {
@@ -13,6 +13,8 @@ class AntiLagBalancer {
     this.stats = {
       totalRoutedConnections: 0,
       microLagPreventedCount: 0,
+      totalBytesDownloaded: 0,
+      totalBytesUploaded: 0,
       activeSockets: []
     };
   }
@@ -82,8 +84,8 @@ class AntiLagBalancer {
     return true;
   }
 
-  // Get active node for a specific target IP
-  routeConnection(targetIp, targetPort, protocol = 'TCP') {
+  // Get active node for a specific target IP or User
+  routeConnection(targetIp, targetPort, protocol = 'TCP', meta = {}) {
     this.stats.totalRoutedConnections++;
 
     const activeNodes = this.nodes.filter(n => n.status !== 'dead');
@@ -99,21 +101,13 @@ class AntiLagBalancer {
       if (boundNode) {
         if (this.mode === 'gaming') {
           if (boundNode.lossRatio < 25 && boundNode.ping < 450) {
-            return {
-              node: boundNode,
-              mode: 'gaming',
-              reason: 'Sticky IP affinity maintained (Gaming Protection)'
-            };
+            return this.createSocketRecord(targetIp, targetPort, protocol, boundNode, 'Gaming Protection', meta);
           } else {
             this.stats.microLagPreventedCount++;
           }
         } else {
           if (boundNode.ping < 150 && boundNode.lossRatio < 10) {
-            return {
-              node: boundNode,
-              mode: 'web',
-              reason: 'Sticky IP affinity maintained (Web Fast Path)'
-            };
+            return this.createSocketRecord(targetIp, targetPort, protocol, boundNode, 'Web Fast Path', meta);
           } else {
             this.stats.microLagPreventedCount++;
           }
@@ -134,30 +128,60 @@ class AntiLagBalancer {
     this.ipAffinityMap.set(targetIp, bestNode.id);
     this.activeOutboundId = bestNode.id;
 
-    // Track active socket with exact start timestamp
+    return this.createSocketRecord(targetIp, targetPort, protocol, bestNode, `Routed to lowest RTT node (${bestNode.ping}ms)`, meta);
+  }
+
+  createSocketRecord(targetIp, targetPort, protocol, node, reason, meta = {}) {
+    const socketId = meta.socketId || Math.random().toString(36).substring(2, 10);
+    const displayTarget = meta.displayTarget || targetIp || meta.user || '8.8.8.8';
+
     const socketInfo = {
-      id: Math.random().toString(36).substring(2, 8),
-      targetIp,
+      id: socketId,
+      targetIp: displayTarget,
       targetPort,
       protocol,
-      nodeId: bestNode.id,
-      nodeName: bestNode.name,
-      nodeFlag: bestNode.flag,
-      countryName: bestNode.countryName,
+      user: meta.user || '',
+      bytesRead: 0,
+      bytesWritten: 0,
+      nodeId: node.id,
+      nodeName: node.name,
+      nodeFlag: node.flag,
+      countryName: node.countryName,
       startTime: new Date().toISOString(),
       startTimestamp: Date.now()
     };
 
-    this.stats.activeSockets.unshift(socketInfo);
-    if (this.stats.activeSockets.length > 30) {
-      this.stats.activeSockets.pop();
+    // Replace existing or prepend new active socket
+    const idx = this.stats.activeSockets.findIndex(s => s.id === socketId);
+    if (idx !== -1) {
+      this.stats.activeSockets[idx] = socketInfo;
+    } else {
+      this.stats.activeSockets.unshift(socketInfo);
+      if (this.stats.activeSockets.length > 40) {
+        this.stats.activeSockets.pop();
+      }
     }
 
     return {
-      node: bestNode,
+      node,
+      socketId,
       mode: this.mode,
-      reason: `Routed to lowest RTT node (${bestNode.name} - ${bestNode.ping}ms)`
+      reason
     };
+  }
+
+  updateSocketTraffic(socketId, bytesRead = 0, bytesWritten = 0) {
+    const socket = this.stats.activeSockets.find(s => s.id === socketId);
+    if (socket) {
+      socket.bytesRead += bytesRead;
+      socket.bytesWritten += bytesWritten;
+    }
+    this.stats.totalBytesDownloaded += bytesRead;
+    this.stats.totalBytesUploaded += bytesWritten;
+  }
+
+  removeActiveSocket(socketId) {
+    this.stats.activeSockets = this.stats.activeSockets.filter(s => s.id !== socketId);
   }
 
   // Get nodes grouped by country with per-country aggregated metrics, unique physical server counts, and custom ordering

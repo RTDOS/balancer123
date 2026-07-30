@@ -6,7 +6,7 @@
   <title>AntiLag VPN Balancer & Proxy Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -18,7 +18,7 @@
         <div class="logo-icon">⚡</div>
         <div class="brand-text">
           <h1>AntiLag Router</h1>
-          <span class="version-tag">v2.4 Telegram Proxy Export</span>
+          <span class="version-tag">v2.5 Live Traffic & Telegram SOCKS5 Engine</span>
         </div>
       </div>
       <div class="navbar-actions">
@@ -83,7 +83,7 @@
           </div>
         </div>
 
-        <!-- Metrics Stats (5 Cards Grid) -->
+        <!-- Metrics Stats (6 Cards Grid - 2 per row) -->
         <div class="metrics-grid">
           <div class="stat-card">
             <div class="stat-icon purple">🌐</div>
@@ -118,6 +118,13 @@
             <div class="stat-content">
               <span class="stat-label">Активные соединения</span>
               <span class="stat-value" id="activeSocketsCount">0</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon purple">🔥</div>
+            <div class="stat-content">
+              <span class="stat-label">Общий трафик</span>
+              <span class="stat-value" id="totalTrafficDisplay" style="font-size:14px; font-family:'JetBrains Mono', monospace;">⬇️ 0 B | ⬆️ 0 B</span>
             </div>
           </div>
         </div>
@@ -171,17 +178,18 @@
       <section class="card sockets-section">
         <div class="card-header">
           <h3>Anti-Lag Engine Active (Активные сокеты)</h3>
-          <span class="badge blue-badge">Real-time Sockets Monitor</span>
+          <span class="badge blue-badge">Real-time Dynamic Monitor</span>
         </div>
         <div class="table-responsive">
           <table class="data-table">
             <thead>
               <tr>
-                <th>Target IP</th>
+                <th>Target / Login</th>
                 <th>Port</th>
                 <th>Protocol</th>
                 <th>Выходящий VPN узел</th>
                 <th>Страна</th>
+                <th>Трафик (⬇️ Скачано / ⬆️ Отдано)</th>
                 <th>Время онлайн (Uptime)</th>
                 <th>Статус маршрута</th>
               </tr>
@@ -197,18 +205,18 @@
 
   <!-- Telegram Proxy Export Modal -->
   <div class="modal-overlay" id="telegramExportModal">
-    <div class="modal-card" style="max-width:580px;">
+    <div class="modal-card" style="max-width:600px;">
       <div class="modal-header">
         <h2>✈️ Экспорт прокси для Telegram</h2>
         <button class="close-btn" onclick="closeTelegramExportModal()">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="modal-hint">
-          Выберите созданный SOCKS5 прокси. Ссылка <code>https://t.me/proxy?...</code> позволяет подключить ваш AntiLag балансировщик в Telegram в 1 клик!
-        </p>
+        <div style="background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); color:#38bdf8; padding:10px 14px; border-radius:10px; font-size:12px; margin-bottom:14px; line-height:1.5;">
+          💡 <strong>Важно для Telegram:</strong> Мессенджер Telegram поддерживает <u>ТОЛЬКО SOCKS5 прокси</u> (HTTP прокси Telegram не использует). Ниже показаны ссылки формата <code>https://t.me/socks?...</code> и <code>tg://socks?...</code>, которые открываются в Telegram на iOS, Android и ПК в 1 клик!
+        </div>
 
-        <div class="form-group" style="margin-top:12px;">
-          <label>Выберите прокси порт подключения</label>
+        <div class="form-group">
+          <label>Выберите входящее SOCKS5 подключение</label>
           <select id="tgInboundSelect" class="form-input" onchange="updateTelegramProxyPreview()">
             <!-- Dynamic Dropdown Options in JS -->
           </select>
@@ -220,18 +228,26 @@
         </div>
 
         <div class="form-group" style="margin-top:14px;">
-          <label style="color:#06b6d4;">Официальная 1-click ссылка Telegram (t.me/proxy):</label>
+          <label style="color:#06b6d4;">Стандартная 1-click ссылка Telegram (t.me/socks):</label>
           <div class="inbound-preview-box">
-            <span id="tgProxyLinkPreview">https://t.me/proxy?...</span>
-            <button class="btn btn-secondary btn-sm" onclick="copyTelegramProxyLink('tgProxyLinkPreview')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
+            <span id="tgSocksLinkPreview">https://t.me/socks?...</span>
+            <button class="btn btn-secondary btn-sm" onclick="copyTelegramProxyLink('tgSocksLinkPreview')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
           </div>
         </div>
 
         <div class="form-group" style="margin-top:10px;">
-          <label style="color:#a5b4fc;">Прямая ссылка приложения (tg://proxy):</label>
+          <label style="color:#a5b4fc;">Прямая ссылка приложения Telegram (tg://socks):</label>
           <div class="inbound-preview-box">
-            <span id="tgAppProxyLinkPreview">tg://proxy?...</span>
-            <button class="btn btn-secondary btn-sm" onclick="copyTelegramProxyLink('tgAppProxyLinkPreview')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
+            <span id="tgAppSocksLinkPreview">tg://socks?...</span>
+            <button class="btn btn-secondary btn-sm" onclick="copyTelegramProxyLink('tgAppSocksLinkPreview')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:10px;">
+          <label style="color:#9ca3af;">Альтернативная ссылка Telegram (t.me/proxy):</label>
+          <div class="inbound-preview-box">
+            <span id="tgProxyLinkPreview">https://t.me/proxy?...</span>
+            <button class="btn btn-secondary btn-sm" onclick="copyTelegramProxyLink('tgProxyLinkPreview')" style="padding:4px 8px; font-size:11px;">📋 Скопировать</button>
           </div>
         </div>
       </div>
@@ -250,7 +266,7 @@
       </div>
       <div class="modal-body">
         <p class="modal-hint">
-          Настройте порты, логины и пароли для входящих подключений. Ссылка подключения обновляется динамически в реальном времени!
+          Настройте порты, логины и пароли для входящих подключений. Порты автоматически открываются в фаерволе сервера (ufw/iptables)!
         </p>
 
         <div id="inboundsListContainer" style="display:flex; flex-direction:column; gap:16px; margin-top:14px;">
@@ -305,7 +321,7 @@
     </div>
   </div>
 
-  <!-- Admin Panel Auth Modal (Form wrapped for Google Chrome Password Saver) -->
+  <!-- Admin Panel Auth Modal -->
   <div class="modal-overlay" id="adminAuthModal">
     <div class="modal-card" style="max-width:440px;">
       <div class="modal-header">
@@ -334,7 +350,7 @@
     </div>
   </div>
 
-  <!-- Mandatory Login Modal (Supports Google Chrome Password Manager Save) -->
+  <!-- Mandatory Login Modal -->
   <div class="modal-overlay" id="loginModal">
     <div class="modal-card" style="max-width:400px;">
       <div class="modal-header">
@@ -392,7 +408,7 @@
     </div>
   </div>
 
-  <!-- Secret Settings Modal with 1-Click Generator -->
+  <!-- Secret Settings Modal -->
   <div class="modal-overlay" id="secretSettingsModal">
     <div class="modal-card" style="max-width:440px;">
       <div class="modal-header">
@@ -556,7 +572,7 @@
     </div>
   </div>
 
-  <!-- Edit Node Modal (With Physical Server Group Editing) -->
+  <!-- Edit Node Modal -->
   <div class="modal-overlay" id="editNodeModal">
     <div class="modal-card">
       <div class="modal-header">

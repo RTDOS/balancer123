@@ -16,6 +16,14 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(tickSocketUptimes, 1000);
 });
 
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
 // Initialize Chart.js
 function initChart() {
   const ctx = document.getElementById('telemetryChart').getContext('2d');
@@ -151,7 +159,19 @@ function renderState(data) {
   document.getElementById('nodeCount').innerText = nodes.length;
   document.getElementById('preventedLags').innerText = data.stats.microLagPreventedCount || 0;
   document.getElementById('totalConnections').innerText = data.stats.totalRoutedConnections || 0;
-  document.getElementById('activeSocketsCount').innerText = data.stats.activeSocketsCount || (data.stats.activeSockets ? data.stats.activeSockets.length : 0);
+
+  const activeSockCount = data.stats.activeSocketsCount || (data.stats.activeSockets ? data.stats.activeSockets.length : 0);
+  const activeSockEl = document.getElementById('activeSocketsCount');
+  if (activeSockEl) {
+    activeSockEl.innerText = activeSockCount;
+  }
+
+  const totalDown = formatBytes(data.stats.totalBytesDownloaded || 0);
+  const totalUp = formatBytes(data.stats.totalBytesUploaded || 0);
+  const totalTrafficEl = document.getElementById('totalTrafficDisplay');
+  if (totalTrafficEl) {
+    totalTrafficEl.innerText = `⬇️ ${totalDown} | ⬆️ ${totalUp}`;
+  }
 
   currentNodesMap.clear();
   nodes.forEach(n => currentNodesMap.set(n.id, n));
@@ -314,19 +334,24 @@ function moveCountry(countryName, direction) {
 function renderSocketsTable(sockets) {
   const tbody = document.getElementById('socketsTableBody');
   if (sockets.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#9ca3af;">Ожидание подключений...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#9ca3af;">Ожидание подключений...</td></tr>`;
     return;
   }
 
   tbody.innerHTML = sockets.map(s => {
     const uptimeStr = formatDuration(Date.now() - (s.startTimestamp || Date.now()));
+    const downStr = formatBytes(s.bytesRead || 0);
+    const upStr = formatBytes(s.bytesWritten || 0);
+    const targetText = s.targetIp || s.user || 'SOCKS/HTTP';
+
     return `
       <tr>
-        <td>${s.targetIp}</td>
+        <td><strong>${targetText}</strong></td>
         <td>${s.targetPort}</td>
         <td><span class="node-protocol">${s.protocol}</span></td>
         <td>${s.nodeFlag} ${s.nodeName}</td>
         <td>${s.nodeFlag} ${s.countryName || 'Auto'}</td>
+        <td><span style="font-family:'JetBrains Mono', monospace; font-size:12px; color:#38bdf8;">⬇️ ${downStr}</span> | <span style="font-family:'JetBrains Mono', monospace; font-size:12px; color:#a5b4fc;">⬆️ ${upStr}</span></td>
         <td><strong class="uptime-counter" data-start="${s.startTimestamp || Date.now()}">${uptimeStr}</strong></td>
         <td><span style="color:#10b981;">● Active (AntiLag)</span></td>
       </tr>
@@ -389,11 +414,14 @@ function openTelegramExportModal() {
   const selectEl = document.getElementById('tgInboundSelect');
   selectEl.innerHTML = '';
 
-  if (currentInboundsList.length === 0) {
-    selectEl.innerHTML = `<option value="">Нет активных прокси подключений</option>`;
+  const socksInbounds = currentInboundsList.filter(i => i.type === 'socks5');
+  const targetList = socksInbounds.length > 0 ? socksInbounds : currentInboundsList;
+
+  if (targetList.length === 0) {
+    selectEl.innerHTML = `<option value="">Нет активных SOCKS5 подключений</option>`;
   } else {
-    currentInboundsList.forEach(inb => {
-      selectEl.innerHTML += `<option value="${inb.id}">${inb.type.toUpperCase()} - ${inb.name} (Port: ${inb.port})</option>`;
+    targetList.forEach(inb => {
+      selectEl.innerHTML += `<option value="${inb.id}">SOCKS5 Proxy (${inb.name}) - Port: ${inb.port}</option>`;
     });
   }
 
@@ -417,8 +445,9 @@ function updateTelegramProxyPreview() {
   const inb = currentInboundsList.find(i => i.id === selectedId) || currentInboundsList[0];
 
   if (!inb) {
+    document.getElementById('tgSocksLinkPreview').innerText = 'Нет данных';
+    document.getElementById('tgAppSocksLinkPreview').innerText = 'Нет данных';
     document.getElementById('tgProxyLinkPreview').innerText = 'Нет данных';
-    document.getElementById('tgAppProxyLinkPreview').innerText = 'Нет данных';
     return;
   }
 
@@ -431,11 +460,13 @@ function updateTelegramProxyPreview() {
     queryParams += `&user=${user}&pass=${pass}`;
   }
 
-  const tmeUrl = `https://t.me/proxy?${queryParams}`;
-  const tgAppUrl = `tg://proxy?${queryParams}`;
+  const tgSocksUrl = `https://t.me/socks?${queryParams}`;
+  const tgAppSocksUrl = `tg://socks?${queryParams}`;
+  const tmeProxyUrl = `https://t.me/proxy?${queryParams}`;
 
-  document.getElementById('tgProxyLinkPreview').innerText = tmeUrl;
-  document.getElementById('tgAppProxyLinkPreview').innerText = tgAppUrl;
+  document.getElementById('tgSocksLinkPreview').innerText = tgSocksUrl;
+  document.getElementById('tgAppSocksLinkPreview').innerText = tgAppSocksUrl;
+  document.getElementById('tgProxyLinkPreview').innerText = tmeProxyUrl;
 }
 
 function copyTelegramProxyLink(elementId) {
@@ -497,7 +528,7 @@ function renderInboundsConfigCards(inbounds) {
           </select>
         </div>
         <div style="flex:1;">
-          <label style="font-size:12px;">Порт</label>
+          <label style="font-size:12px;">Порт (открывается в фаерволе)</label>
           <input type="number" id="inbPort_${inb.id}" class="form-input" value="${initialPort}" oninput="updateInboundPreview('${inb.id}')">
         </div>
       </div>
@@ -639,7 +670,7 @@ function saveInboundProxy(id) {
         currentInboundsList = data.inbounds;
         renderNavbarInboundsBadge(currentInboundsList);
         renderInboundsConfigCards(currentInboundsList);
-        alert('Прокси подключение успешно обновлено!');
+        alert('Прокси подключение успешно обновлено и открыто в фаерволе!');
       } else {
         alert(data.message || 'Ошибка обновления прокси');
       }

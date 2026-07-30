@@ -66,7 +66,7 @@ app.use((req, res, next) => {
 // Initialize Core Balancer, Health Engine, Inbound Proxy & Cluster Engine
 const balancer = new AntiLagBalancer();
 const healthEngine = new HealthCheckEngine(balancer);
-const inboundManager = new InboundProxyManager(balancer);
+const inboundManager = new InboundProxyManager(balancer, () => broadcastState());
 const clusterEngine = new ClusterEngine(balancer);
 
 // Seed initial demo node setup
@@ -571,11 +571,18 @@ app.post('/api/simulate-lag', (req, res) => {
 });
 
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, '0.0.0.0', () => {
+const HOST = process.env.HOST || '0.0.0.0';
+
+server.listen(PORT, HOST, () => {
   console.log(`====================================================`);
-  console.log(`🚀 AntiLag VPN Balancer & Manager running on:`);
-  console.log(`👉 Camouflage URL (Dummy Nginx 404): http://localhost:${PORT}`);
-  console.log(`👉 Secret Web Panel URL: http://localhost:${PORT}/${SECRET_PATH}/`);
+  console.log(`🚀 AntiLag VPN Balancer & Manager running on ${HOST}:${PORT}:`);
+  if (HOST === '127.0.0.1') {
+    console.log(`🔒 SSH Tunnel Mode: Access via ssh -L ${PORT}:127.0.0.1:${PORT} root@YOUR_SERVER_IP`);
+    console.log(`👉 Secret Web Panel URL: http://localhost:${PORT}/${SECRET_PATH}/`);
+  } else {
+    console.log(`👉 Camouflage URL (Dummy Nginx 404): http://localhost:${PORT}`);
+    console.log(`👉 Secret Web Panel URL: http://localhost:${PORT}/${SECRET_PATH}/`);
+  }
   console.log(`👉 Security Shield: Active (Brute-Force Rate Limiter & Panel Auth Cluster)`);
   console.log(`====================================================`);
 });
