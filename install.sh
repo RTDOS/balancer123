@@ -111,7 +111,10 @@ if [ -f "./package.json" ]; then
   cp -r ./* "$INSTALL_DIR/" &> /dev/null || true
 else
   if [ -d "$INSTALL_DIR/.git" ]; then
-    cd "$INSTALL_DIR" && git pull || true
+    cd "$INSTALL_DIR"
+    git stash &> /dev/null || true
+    git checkout -- . &> /dev/null || true
+    git pull origin main || git pull || true
   else
     rm -rf "$INSTALL_DIR"
     git clone https://github.com/RTDOS/balancer123.git "$INSTALL_DIR" || cp -r . "$INSTALL_DIR"
