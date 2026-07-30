@@ -1106,18 +1106,50 @@ function closeExportModal() {
   document.getElementById('exportModal').classList.remove('open');
 }
 
+function copyProxyString(elementId) {
+  const input = document.getElementById(elementId);
+  if (!input) return;
+
+  const textToCopy = input.value || input.innerText;
+  
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      alert('📋 Ссылка подписки скопирована в буфер обмена!');
+    }).catch(() => {
+      fallbackCopyText(input);
+    });
+  } else {
+    fallbackCopyText(input);
+  }
+}
+
+function fallbackCopyText(input) {
+  if (!input) return;
+  input.focus();
+  input.select();
+  if (input.setSelectionRange) {
+    input.setSelectionRange(0, 99999);
+  }
+  try {
+    const successful = document.execCommand('copy');
+    if (successful) {
+      alert('📋 Скопировано в буфер обмена!');
+    } else {
+      prompt('Скопируйте ссылку вручную:', input.value);
+    }
+  } catch (err) {
+    prompt('Скопируйте ссылку вручную:', input.value);
+  }
+}
+
 function copyClientSocksProxies() {
   const area = document.getElementById('clientSocksExportArea');
-  area.select();
-  document.execCommand('copy');
-  alert('Прокси адреса SOCKS5 / HTTP скопированы!');
+  fallbackCopyText(area);
 }
 
 function copyExportLinks() {
   const textarea = document.getElementById('exportTextarea');
-  textarea.select();
-  document.execCommand('copy');
-  alert('Ссылки всех сбалансированных серверов скопированы!');
+  fallbackCopyText(textarea);
 }
 
 function pingAllNodes() {

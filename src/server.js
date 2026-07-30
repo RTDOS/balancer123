@@ -475,28 +475,24 @@ app.post('/api/parse', (req, res) => {
   });
 });
 
-// --- VPN CLIENT SUBSCRIPTION EXPORT ENDPOINTS (Hiddify, V2RayN, Shadowrocket, Clash, NekoBox) ---
+// --- VPN CLIENT SUBSCRIPTION EXPORT ENDPOINTS (Hiddify, V2RayN, Happ, Shadowrocket, Clash, NekoBox) ---
 
-// GET /api/export/sub - Universal Base64 Subscription for V2RayN, Shadowrocket, NekoBox, Streisand
+// GET /api/export/sub - Universal Base64 Subscription (Exports ONLY AntiLag's Balanced Proxies)
 app.get('/api/export/sub', (req, res) => {
   const host = req.get('host') ? req.get('host').split(':')[0] : 'localhost';
   const inbounds = inboundManager.getInbounds();
 
   const lines = inbounds.map(inb => {
     const auth = (inb.username && inb.password) ? `${inb.username}:${inb.password}@` : '';
-    return `${inb.type}://${auth}${host}:${inb.port}#AntiLag_${inb.name.replace(/\s+/g, '_')}`;
+    return `${inb.type}://${auth}${host}:${inb.port}#AntiLag_Balancer_${inb.type.toUpperCase()}_${inb.port}`;
   });
 
-  // Also include raw outbound VPN links if available
-  const rawNodes = balancer.nodes.map(n => n.raw);
-  const combined = [...lines, ...rawNodes].join('\n');
-
-  const base64Sub = Buffer.from(combined).toString('base64');
+  const base64Sub = Buffer.from(lines.join('\n')).toString('base64');
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.send(base64Sub);
 });
 
-// GET /api/export/clash - Clash Meta / Hiddify / OpenClash YAML Config
+// GET /api/export/clash - Clash Meta / Hiddify / OpenClash YAML Config (Exports ONLY AntiLag's Balanced Proxies)
 app.get('/api/export/clash', (req, res) => {
   const host = req.get('host') ? req.get('host').split(':')[0] : 'localhost';
   const inbounds = inboundManager.getInbounds();
@@ -505,7 +501,7 @@ app.get('/api/export/clash', (req, res) => {
   const proxyNames = [];
 
   inbounds.forEach(inb => {
-    const name = `⚡ AntiLag ${inb.type.toUpperCase()} (${inb.port})`;
+    const name = `⚡ AntiLag Balancer ${inb.type.toUpperCase()} (${inb.port})`;
     proxyNames.push(name);
 
     let authYaml = '';
