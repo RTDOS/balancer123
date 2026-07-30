@@ -3,6 +3,8 @@
  * Handles Gaming Mode (Sticky IP), Web Mode (Fast Switch), Target IP Affinity, Parallel Racing, Country Group Ordering, and Real-time Socket Traffic Monitoring.
  */
 
+const crypto = require('crypto');
+
 class AntiLagBalancer {
   constructor() {
     this.mode = 'gaming'; // 'gaming' | 'web'
@@ -10,6 +12,8 @@ class AntiLagBalancer {
     this.countryOrder = []; // Array of countryNames for custom ordering
     this.activeOutboundId = null;
     this.ipAffinityMap = new Map(); // Target IP -> Node ID mapping
+    this.clusterKey = crypto.randomBytes(32).toString('hex'); // 64-char SHA-256 cluster key
+    this.connectionLogs = []; // Rolling log of active connections (max 50)
     this.stats = {
       totalRoutedConnections: 0,
       microLagPreventedCount: 0,
@@ -17,6 +21,34 @@ class AntiLagBalancer {
       totalBytesUploaded: 0,
       activeSockets: []
     };
+  }
+
+  getClusterKey() {
+    return this.clusterKey;
+  }
+
+  regenerateClusterKey() {
+    this.clusterKey = crypto.randomBytes(32).toString('hex');
+    return this.clusterKey;
+  }
+
+  addConnectionLog(entry) {
+    const logItem = {
+      timestamp: new Date().toLocaleTimeString(),
+      target: entry.target || 'Unknown',
+      port: entry.port || 443,
+      protocol: entry.protocol || 'SOCKS5',
+      node: entry.nodeName || 'Direct',
+      user: entry.user || 'Anonymous'
+    };
+    this.connectionLogs.unshift(logItem);
+    if (this.connectionLogs.length > 50) {
+      this.connectionLogs.pop();
+    }
+  }
+
+  getConnectionLogs() {
+    return this.connectionLogs;
   }
 
   setMode(newMode) {
@@ -150,6 +182,14 @@ class AntiLagBalancer {
       startTime: new Date().toISOString(),
       startTimestamp: Date.now()
     };
+
+    this.addConnectionLog({
+      target: displayTarget,
+      port: targetPort,
+      protocol,
+      nodeName: node.name,
+      user: meta.user || 'Anonymous'
+    });
 
     // Replace existing or prepend new active socket
     const idx = this.stats.activeSockets.findIndex(s => s.id === socketId);

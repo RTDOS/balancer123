@@ -7,6 +7,7 @@ let hasAdminPassword = false;
 let currentAdminUsername = 'admin';
 let currentInboundsList = [];
 let isAuthenticatedSession = false;
+let currentClusterKey = '';
 
 document.addEventListener('DOMContentLoaded', () => {
   initChart();
@@ -117,6 +118,11 @@ function fetchInitialStatus() {
           return;
         }
 
+        if (data.clusterKey) {
+          currentClusterKey = data.clusterKey;
+          renderClusterKeyUI(currentClusterKey);
+        }
+
         if (data.inbounds) {
           currentInboundsList = data.inbounds;
           renderNavbarInboundsBadge(currentInboundsList);
@@ -128,6 +134,35 @@ function fetchInitialStatus() {
         currentAdminUsername = data.adminUsername || 'admin';
         toggleDefaultPassBanner(data.isDefaultPassword);
         updateModeUI(data.mode);
+      }
+    });
+}
+
+function renderClusterKeyUI(key) {
+  const keyEl = document.getElementById('clusterKeyDisplay');
+  if (keyEl) {
+    keyEl.innerText = key || 'Не сгенерирован';
+  }
+}
+
+function copyClusterKey() {
+  if (!currentClusterKey) {
+    alert('Ключ кластера не сгенерирован.');
+    return;
+  }
+  fallbackCopyText(currentClusterKey);
+}
+
+function regenerateClusterKeyDirect() {
+  if (!confirm('Вы уверены, что хотите перегенерировать SHA-256 Ключ Кластера? Подключенные узлы потребуется перепривязать с новым ключом.')) return;
+
+  fetch('/api/cluster/regenerate-key', { method: 'POST' })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.clusterKey) {
+        currentClusterKey = data.clusterKey;
+        renderClusterKeyUI(currentClusterKey);
+        alert('Новый SHA-256 Ключ Кластера успешно сгенерирован!');
       }
     });
 }
@@ -152,6 +187,11 @@ function renderNavbarInboundsBadge(inbounds) {
 
 function renderState(data) {
   updateModeUI(data.mode);
+
+  if (data.clusterKey) {
+    currentClusterKey = data.clusterKey;
+    renderClusterKeyUI(currentClusterKey);
+  }
 
   if (data.secretPath) {
     document.getElementById('secretPathBadge').innerText = `/${data.secretPath}/`;
@@ -377,7 +417,7 @@ function renderClusterPeers(clusterData) {
   if (peers.length === 0) {
     container.innerHTML = `
       <div style="grid-column: 1 / -1; color:#9ca3af; font-size:13px; text-align:center; padding:12px;">
-        Этот сервер работает автономно. Вы можете привязать 2-3 дополнительных сервера для автоматической P2P-синхронизации и отказоустойчивости.
+        Этот сервер работает автономно. Скопируйте **SHA-256 Ключ Кластера** и привяжите 2-3 дополнительных сервера для автоматической P2P-синхронизации, сокетов и журнала подключений.
       </div>
     `;
     return;
@@ -386,8 +426,10 @@ function renderClusterPeers(clusterData) {
   container.innerHTML = peers.map(p => `
     <div class="peer-card">
       <div>
-        <div class="peer-url">🌐 ${p.url} (User: ${p.username || 'admin'})</div>
-        <div style="font-size:11px; color:#9ca3af; margin-top:2px;">Нод: ${p.nodeCount || 0} | Синхр: ${p.lastSyncTime || 'Запуск...'}</div>
+        <div class="peer-url">🌐 ${p.url} <span style="font-size:11px; color:#38bdf8; margin-left:6px;">(Key: ${p.clusterKey || 'SHA-256'})</span></div>
+        <div style="font-size:11px; color:#9ca3af; margin-top:2px;">
+          Узлов: ${p.nodeCount || 0} | Прокси: ${p.inboundsCount || 0} | Сокетов: ${p.activeSocketsCount || 0} | Синхр: ${p.lastSyncTime || 'Запуск...'}
+        </div>
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
         <span class="${p.status === 'online' ? 'peer-status-online' : 'peer-status-offline'}">
@@ -644,15 +686,7 @@ function copyProxyString(elementId) {
   if (!el) return;
   const text = el.innerText || el.textContent;
 
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
-      alert(`Ссылка скопирована: ${text}`);
-    }).catch(() => {
-      fallbackCopyText(text);
-    });
-  } else {
-    fallbackCopyText(text);
-  }
+  fallbackCopyText(text);
 }
 
 function fallbackCopyText(text) {
@@ -662,7 +696,7 @@ function fallbackCopyText(text) {
   temp.select();
   document.execCommand('copy');
   document.body.removeChild(temp);
-  alert(`Ссылка скопирована: ${text}`);
+  alert(`Скопировано в буфер обмена: ${text}`);
 }
 
 function saveInboundProxy(id) {
@@ -946,14 +980,13 @@ function closeAddPeerModal() {
 
 function submitAddPeer() {
   const peerUrl = document.getElementById('peerUrlInput').value;
-  const username = document.getElementById('peerUserInput').value;
-  const password = document.getElementById('peerPassInput').value;
+  const clusterKey = document.getElementById('peerClusterKeyInput').value;
   if (!peerUrl.trim()) return;
 
   fetch('/api/cluster/peers', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ peerUrl, username, password })
+    body: JSON.stringify({ peerUrl, clusterKey })
   }).then(res => res.json())
     .then(data => {
       if (data.success) {

@@ -3,28 +3,31 @@ const https = require('https');
 
 /**
  * Multi-Server High-Availability Cluster & P2P Sync Engine
- * Synchronizes VPN nodes, balancer modes, country ordering and health telemetry across 2-3 servers using panel credentials.
+ * Uses 64-char SHA-256 Cluster Key for encrypted inter-panel authentication.
+ * Synchronizes VPN nodes, HTTP/SOCKS inbounds, active sockets, and connection logs across clustered servers.
  */
 
 class ClusterEngine {
   constructor(balancer) {
     this.balancer = balancer;
-    this.peers = []; // Array of { id, url, username, password, status: 'online'|'offline', lastSyncTime }
+    this.peers = []; // Array of { id, url, clusterKey, status: 'online'|'offline'|'error', lastSyncTime, nodeCount, inboundsCount, activeSocketsCount, remoteLogs }
     this.syncIntervalId = null;
   }
 
-  addPeer(peerUrl, username = 'admin', password = 'admin') {
+  addPeer(peerUrl, clusterKey = '') {
     const cleanUrl = peerUrl.replace(/\/$/, '');
     if (this.peers.some(p => p.url === cleanUrl)) return false;
 
     const peer = {
       id: 'peer_' + Math.random().toString(36).substring(2, 8),
       url: cleanUrl,
-      username: username || 'admin',
-      password: password || 'admin',
+      clusterKey: clusterKey ? clusterKey.trim() : '',
       status: 'unknown',
       lastSyncTime: null,
-      nodeCount: 0
+      nodeCount: 0,
+      inboundsCount: 0,
+      activeSocketsCount: 0,
+      remoteLogs: []
     };
 
     this.peers.push(peer);
@@ -59,11 +62,12 @@ class ClusterEngine {
   async syncPeer(peer) {
     try {
       const payload = JSON.stringify({
-        username: peer.username,
-        password: peer.password,
+        clusterKey: peer.clusterKey,
         mode: this.balancer.mode,
         nodes: this.balancer.nodes,
-        countryOrder: this.balancer.countryOrder
+        countryOrder: this.balancer.countryOrder,
+        activeSockets: this.balancer.stats.activeSockets || [],
+        connectionLogs: this.balancer.getConnectionLogs()
       });
 
       const urlObj = new URL(`${peer.url}/api/cluster/sync`);
@@ -73,9 +77,10 @@ class ClusterEngine {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload)
+          'Content-Length': Buffer.byteLength(payload),
+          'X-Cluster-Token': peer.clusterKey
         },
-        timeout: 3000
+        timeout: 4000
       }, (res) => {
         let body = '';
         res.on('data', chunk => body += chunk);
@@ -86,8 +91,11 @@ class ClusterEngine {
               peer.status = 'online';
               peer.lastSyncTime = new Date().toLocaleTimeString();
               peer.nodeCount = data.nodeCount || 0;
+              peer.inboundsCount = data.inboundsCount || 0;
+              peer.activeSocketsCount = data.activeSocketsCount || 0;
+              peer.remoteLogs = data.connectionLogs || [];
 
-              // Merge remote nodes into local balancer if remote has new nodes
+              // Merge remote nodes into local balancer
               if (data.nodes && Array.isArray(data.nodes)) {
                 this.balancer.addNodes(data.nodes);
               }
@@ -123,10 +131,13 @@ class ClusterEngine {
       peers: this.peers.map(p => ({
         id: p.id,
         url: p.url,
-        username: p.username,
+        clusterKey: p.clusterKey ? `${p.clusterKey.substring(0, 8)}...${p.clusterKey.substring(56)}` : 'N/A',
         status: p.status,
         lastSyncTime: p.lastSyncTime,
-        nodeCount: p.nodeCount
+        nodeCount: p.nodeCount,
+        inboundsCount: p.inboundsCount,
+        activeSocketsCount: p.activeSocketsCount,
+        remoteLogs: p.remoteLogs || []
       }))
     };
   }

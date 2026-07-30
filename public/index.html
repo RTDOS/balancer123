@@ -136,6 +136,18 @@
           <h3>Высокодоступный Кластер (2-3 Сервера HA Mesh)</h3>
           <button class="btn btn-secondary btn-sm" onclick="openAddPeerModal()">+ Добавить ноду кластера</button>
         </div>
+
+        <div style="margin-bottom: 12px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <span style="font-size:12px; color:#a5b4fc; font-weight:600; display:block;">🔑 Ваш SHA-256 Ключ Кластера (Ключ Безопасной Синхронизации):</span>
+            <code id="clusterKeyDisplay" style="font-family:'JetBrains Mono', monospace; font-size:12px; color:#38bdf8; word-break:break-all;">Загрузка ключа...</code>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-secondary btn-sm" onclick="copyClusterKey()" style="white-space:nowrap;">📋 Скопировать ключ</button>
+            <button class="btn btn-secondary btn-sm" onclick="regenerateClusterKeyDirect()" title="Сгенерировать новый SHA-256 ключ">🎲</button>
+          </div>
+        </div>
+
         <div class="cluster-peers-grid" id="clusterPeersContainer">
           <!-- Dynamic Peer Cards rendered in JS -->
         </div>
@@ -548,7 +560,7 @@
   <div class="modal-overlay" id="addPeerModal">
     <div class="modal-card">
       <div class="modal-header">
-        <h2>Синхронизация с узлом кластера</h2>
+        <h2>Синхронизация с узлом кластера (SHA-256)</h2>
         <button class="close-btn" onclick="closeAddPeerModal()">&times;</button>
       </div>
       <div class="modal-body">
@@ -557,12 +569,8 @@
           <input type="text" id="peerUrlInput" class="form-input" placeholder="http://194.168.1.50:8080">
         </div>
         <div class="form-group" style="margin-top:12px;">
-          <label>Логин панели целевого сервера (Username)</label>
-          <input type="text" id="peerUserInput" class="form-input" placeholder="admin" value="admin">
-        </div>
-        <div class="form-group" style="margin-top:12px;">
-          <label>Пароль панели целевого сервера (Password)</label>
-          <input type="password" id="peerPassInput" class="form-input" placeholder="Пароль панели сервера">
+          <label>SHA-256 Ключ Кластера целевого сервера (64 символа)</label>
+          <input type="text" id="peerClusterKeyInput" class="form-input" placeholder="Вставьте скопированный SHA-256 ключ целевого сервера" style="font-family:'JetBrains Mono', monospace;">
         </div>
       </div>
       <div class="modal-footer">

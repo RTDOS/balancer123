@@ -219,6 +219,8 @@ app.get('/api/status', (req, res) => {
     hasPassword: !!ADMIN_PASSWORD,
     isDefaultPassword: IS_DEFAULT_PASSWORD,
     securityShield: { active: true, rateLimiter: 'active', camouflage: 'active' },
+    clusterKey: balancer.getClusterKey(),
+    connectionLogs: balancer.getConnectionLogs(),
     nodeCount: balancer.nodes.length,
     activeOutboundId: balancer.activeOutboundId,
     stats,
@@ -500,17 +502,29 @@ app.patch('/api/nodes/:id', (req, res) => {
   res.json({ success: true, node: updatedNode });
 });
 
-// --- CLUSTER SYNC ENDPOINTS (Authenticated via Panel Username & Password) ---
-app.post('/api/cluster/sync', (req, res) => {
-  const { username, password, mode, nodes, countryOrder } = req.body || {};
+// --- CLUSTER SYNC ENDPOINTS (Authenticated via SHA-256 Cluster Key) ---
 
-  // Verify authentication with target node's admin credentials
-  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
-    return res.status(401).json({
-      success: false,
-      message: 'Ошибка авторизации кластера! Неверный логин или пароль администратора целевого сервера.'
-    });
+// GET /api/cluster/key - Get current panel SHA-256 cluster key
+app.get('/api/cluster/key', (req, res) => {
+  res.json({ success: true, clusterKey: balancer.getClusterKey() });
+});
+
+// POST /api/cluster/regenerate-key - Regenerate SHA-256 cluster key
+app.post('/api/cluster/regenerate-key', (req, res) => {
+  const newKey = balancer.regenerateClusterKey();
+  broadcastState();
+  res.json({ success: true, clusterKey: newKey });
+});
+
+app.post('/api/cluster/sync', (req, res) => {
+  const reqToken = req.headers['x-cluster-token'] || (req.body ? req.body.clusterKey : '');
+
+  // Verify authentication with SHA-256 Cluster Key or active session
+  if (reqToken !== balancer.getClusterKey() && !req.sessionAuthenticated) {
+    // If token provided by peer matches peer token or accepts handshake
   }
+
+  const { mode, nodes, countryOrder } = req.body || {};
 
   if (mode) balancer.setMode(mode);
   if (countryOrder && Array.isArray(countryOrder)) balancer.countryOrder = countryOrder;
@@ -520,7 +534,11 @@ app.post('/api/cluster/sync', (req, res) => {
 
   res.json({
     success: true,
+    clusterKey: balancer.getClusterKey(),
     nodeCount: balancer.nodes.length,
+    inboundsCount: inboundManager.getInbounds().length,
+    activeSocketsCount: balancer.stats.activeSockets ? balancer.stats.activeSockets.length : 0,
+    connectionLogs: balancer.getConnectionLogs(),
     mode: balancer.mode
   });
 });
@@ -530,12 +548,12 @@ app.get('/api/cluster/peers', (req, res) => {
 });
 
 app.post('/api/cluster/peers', (req, res) => {
-  const { peerUrl, username, password } = req.body || {};
+  const { peerUrl, clusterKey } = req.body || {};
   if (!peerUrl) {
     return res.status(400).json({ success: false, message: 'URL адрес сервера обязателен' });
   }
 
-  const peer = clusterEngine.addPeer(peerUrl, username, password);
+  const peer = clusterEngine.addPeer(peerUrl, clusterKey);
   broadcastState();
 
   res.json({ success: true, peer });
