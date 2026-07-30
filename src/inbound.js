@@ -248,97 +248,39 @@ class InboundProxyManager {
 
   // --- ULTRA-FAST TUIC v5 / QUIC UDP & TCP INBOUND PROXY IMPLEMENTATION ---
   createTuicServer(config) {
-    const port = config.port;
+    const EventEmitter = require('events').EventEmitter;
+    const serverWrapper = new EventEmitter();
+
     const udpSocket = dgram.createSocket('udp4');
+    const tcpServer = net.createServer();
     const udpSessions = new Map(); // clientKey -> { targetSocket, socketId }
 
-    // Handle incoming UDP datagrams (TUIC v5 / QUIC packets over UDP)
-    udpSocket.on('message', (msg, rinfo) => {
-      if (msg.length < 4) return;
+    serverWrapper.listen = (port, host, callback) => {
+      udpSocket.on('error', (err) => serverWrapper.emit('error', err));
+      tcpServer.on('error', (err) => serverWrapper.emit('error', err));
 
-      const clientKey = `${rinfo.address}:${rinfo.port}`;
-      let session = udpSessions.get(clientKey);
+      let listeningCount = 0;
+      const onListening = () => {
+        listeningCount++;
+        if (listeningCount === 1 && typeof callback === 'function') {
+          callback();
+        }
+      };
 
-      if (!session) {
-        let targetHost = '127.0.0.1';
-        let targetPort = 443;
+      try { udpSocket.bind(port, host, onListening); } catch (e) {}
+      try { tcpServer.listen(port, host, onListening); } catch (e) {}
 
-        try {
-          // Parse TUIC datagram header (Packet type + UUID/token + Target Address)
-          let offset = 0;
-          if (msg[0] === 0x00 || msg[0] === 0x01 || msg[0] === 0x02 || msg[0] === 0x10) {
-            offset = 17; // 1b type + 16b UUID
-            if (msg.length > offset) {
-              const addrType = msg[offset];
-              offset++;
-              if (addrType === 0x01 && msg.length >= offset + 6) { // IPv4
-                targetHost = `${msg[offset]}.${msg[offset+1]}.${msg[offset+2]}.${msg[offset+3]}`;
-                targetPort = msg.readUInt16BE(offset + 4);
-              } else if (addrType === 0x02 && msg.length >= offset + 1) { // Domain
-                const domainLen = msg[offset];
-                offset++;
-                if (msg.length >= offset + domainLen + 2) {
-                  targetHost = msg.toString('utf-8', offset, offset + domainLen);
-                  targetPort = msg.readUInt16BE(offset + domainLen);
-                }
-              }
-            }
-          }
-        } catch (e) {}
+      return serverWrapper;
+    };
 
-        const socketId = 'tuic_udp_' + Math.random().toString(36).substring(2, 10);
-        const route = this.balancer.routeConnection(targetHost, targetPort, 'TUIC', {
-          socketId,
-          user: config.username || 'TUIC QUIC Client',
-          displayTarget: targetHost,
-          inboundPort: port
-        });
+    serverWrapper.close = (cb) => {
+      try { udpSocket.close(); } catch (e) {}
+      try { tcpServer.close(cb); } catch (e) { if (cb) cb(); }
+      return serverWrapper;
+    };
 
-        this.onStateChange();
-
-        const targetSocket = net.connect({ host: targetHost, port: targetPort }, () => {
-          this.balancer.updateSocketTraffic(socketId, 0, msg.length);
-        });
-
-        targetSocket.on('data', (chunk) => {
-          this.balancer.updateSocketTraffic(socketId, chunk.length, 0);
-          try {
-            udpSocket.send(chunk, rinfo.port, rinfo.address);
-          } catch (e) {}
-        });
-
-        const closeSession = () => {
-          try { targetSocket.destroy(); } catch (e) {}
-          udpSessions.delete(clientKey);
-          this.balancer.removeActiveSocket(socketId);
-          this.onStateChange();
-        };
-
-        targetSocket.on('error', closeSession);
-        targetSocket.on('close', closeSession);
-
-        session = { targetSocket, socketId };
-        udpSessions.set(clientKey, session);
-      } else {
-        try {
-          session.targetSocket.write(msg);
-          this.balancer.updateSocketTraffic(session.socketId, 0, msg.length);
-        } catch (e) {}
-      }
-    });
-
-    udpSocket.on('error', (err) => {
-      console.error(`[Inbound TUIC UDP ${port}] Error:`, err.message);
-    });
-
-    try {
-      udpSocket.bind(port, '0.0.0.0', () => {
-        console.log(`[Inbound TUIC UDP/QUIC] Listening on 0.0.0.0:${port}`);
-      });
-    } catch (e) {}
-
-    // Fallback TCP Server for TUIC stream clients
-    const tcpServer = net.createServer((clientSocket) => {
+    // TCP client connection logic
+    tcpServer.on('connection', (clientSocket) => {
       const socketId = 'tuic_tcp_' + Math.random().toString(36).substring(2, 10);
       let authenticatedUser = config.username || 'TUIC Stream Client';
 
@@ -402,16 +344,80 @@ class InboundProxyManager {
       });
     });
 
-    try {
-      tcpServer.listen(port, '0.0.0.0');
-    } catch (e) {}
+    // UDP QUIC datagram logic
+    udpSocket.on('message', (msg, rinfo) => {
+      if (msg.length < 4) return;
+      const clientKey = `${rinfo.address}:${rinfo.port}`;
+      let session = udpSessions.get(clientKey);
 
-    return {
-      close: () => {
-        try { udpSocket.close(); } catch (e) {}
-        try { tcpServer.close(); } catch (e) {}
+      if (!session) {
+        let targetHost = '127.0.0.1';
+        let targetPort = 443;
+
+        try {
+          let offset = 0;
+          if (msg[0] === 0x00 || msg[0] === 0x01 || msg[0] === 0x02 || msg[0] === 0x10) {
+            offset = 17;
+            if (msg.length > offset) {
+              const addrType = msg[offset];
+              offset++;
+              if (addrType === 0x01 && msg.length >= offset + 6) {
+                targetHost = `${msg[offset]}.${msg[offset+1]}.${msg[offset+2]}.${msg[offset+3]}`;
+                targetPort = msg.readUInt16BE(offset + 4);
+              } else if (addrType === 0x02 && msg.length >= offset + 1) {
+                const domainLen = msg[offset];
+                offset++;
+                if (msg.length >= offset + domainLen + 2) {
+                  targetHost = msg.toString('utf-8', offset, offset + domainLen);
+                  targetPort = msg.readUInt16BE(offset + domainLen);
+                }
+              }
+            }
+          }
+        } catch (e) {}
+
+        const socketId = 'tuic_udp_' + Math.random().toString(36).substring(2, 10);
+        const route = this.balancer.routeConnection(targetHost, targetPort, 'TUIC', {
+          socketId,
+          user: config.username || 'TUIC QUIC Client',
+          displayTarget: targetHost,
+          inboundPort: config.port
+        });
+
+        this.onStateChange();
+
+        const targetSocket = net.connect({ host: targetHost, port: targetPort }, () => {
+          this.balancer.updateSocketTraffic(socketId, 0, msg.length);
+        });
+
+        targetSocket.on('data', (chunk) => {
+          this.balancer.updateSocketTraffic(socketId, chunk.length, 0);
+          try {
+            udpSocket.send(chunk, rinfo.port, rinfo.address);
+          } catch (e) {}
+        });
+
+        const closeSession = () => {
+          try { targetSocket.destroy(); } catch (e) {}
+          udpSessions.delete(clientKey);
+          this.balancer.removeActiveSocket(socketId);
+          this.onStateChange();
+        };
+
+        targetSocket.on('error', closeSession);
+        targetSocket.on('close', closeSession);
+
+        session = { targetSocket, socketId };
+        udpSessions.set(clientKey, session);
+      } else {
+        try {
+          session.targetSocket.write(msg);
+          this.balancer.updateSocketTraffic(session.socketId, 0, msg.length);
+        } catch (e) {}
       }
-    };
+    });
+
+    return serverWrapper;
   }
 
   // --- FULL DUPLEX VLESS TCP INBOUND PROXY IMPLEMENTATION ---

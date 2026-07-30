@@ -216,13 +216,14 @@ show_menu() {
   echo -e "3) 🔄 Перезапустить AntiLag"
   echo -e "4) 📜 Посмотреть логи в реальном времени (journalctl)"
   echo -e "5) 🔀 Переключить режим (Public 0.0.0.0 <-> SSH 127.0.0.1)"
-  echo -e "6) 🛑 Остановить службу"
+  echo -e "6) 🔑 Сбросить пароль, логин и секретный путь (admin / admin / /secret/)"
+  echo -e "7) 🛑 Остановить службу"
   echo -e "0) Выход\n"
 
   if [ -t 0 ]; then
-    read -p "Выберите действие [0-6]: " choice
+    read -p "Выберите действие [0-7]: " choice
   else
-    read -p "Выберите действие [0-6]: " choice < /dev/tty
+    read -p "Выберите действие [0-7]: " choice < /dev/tty
   fi
 
   case $choice in
@@ -264,6 +265,31 @@ show_menu() {
       systemctl restart antilag
       ;;
     6)
+      echo -e "${YELLOW}🔑 Сброс учетных данных веб-панели AntiLag...${NC}"
+      CONFIG_FILE="/opt/antilag/config.json"
+      if [ -f "$CONFIG_FILE" ]; then
+        node -e '
+          const fs = require("fs");
+          const p = "/opt/antilag/config.json";
+          if (fs.existsSync(p)) {
+            const data = JSON.parse(fs.readFileSync(p, "utf-8"));
+            data.adminUsername = "admin";
+            data.adminPassword = "admin";
+            data.isDefaultPassword = true;
+            data.secretPath = "secret";
+            fs.writeFileSync(p, JSON.stringify(data, null, 2));
+          }
+        ' &> /dev/null || true
+        systemctl restart antilag
+        echo -e "${GREEN}✅ Учетные данные успешно сброшены!${NC}"
+        echo -e "👤 Логин: ${CYAN}admin${NC}"
+        echo -e "🔑 Пароль: ${CYAN}admin${NC}"
+        echo -e "🔒 Секретный путь: ${CYAN}/secret/${NC}"
+      else
+        echo -e "${RED}Файл config.json не найден.${NC}"
+      fi
+      ;;
+    7)
       systemctl stop antilag
       echo -e "${RED}🛑 Служба AntiLag остановлена.${NC}"
       ;;
