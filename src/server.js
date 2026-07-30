@@ -9,16 +9,19 @@ const HealthCheckEngine = require('./healthcheck');
 const { InboundProxyManager, isPortAvailable } = require('./inbound');
 const ClusterEngine = require('./cluster');
 const { parseTextBlob, PRESET_COUNTRIES } = require('./parser');
+const { loadConfig, saveConfig, CURRENT_VERSION } = require('./config');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Security & Authentication Configuration (Default admin/admin on first install)
-let SECRET_PATH = 'secret';
-let ADMIN_USERNAME = 'admin';
-let ADMIN_PASSWORD = 'admin'; // Default admin/admin
-let IS_DEFAULT_PASSWORD = true;
+// Load Persistent Config
+const appConfig = loadConfig();
+
+let SECRET_PATH = appConfig.secretPath || 'secret';
+let ADMIN_USERNAME = appConfig.adminUsername || 'admin';
+let ADMIN_PASSWORD = appConfig.adminPassword || 'admin';
+let IS_DEFAULT_PASSWORD = appConfig.isDefaultPassword !== undefined ? appConfig.isDefaultPassword : true;
 
 // Brute-force Security Rate Limiter (IP -> { failedCount, lockUntil })
 const failedLoginsMap = new Map();
@@ -69,7 +72,11 @@ const healthEngine = new HealthCheckEngine(balancer);
 const inboundManager = new InboundProxyManager(balancer, () => broadcastState());
 const clusterEngine = new ClusterEngine(balancer);
 
-// Seed initial demo node setup
+// Restore Balancer state from Persistent Config
+balancer.clusterKey = appConfig.clusterKey || crypto.randomBytes(32).toString('hex');
+balancer.mode = appConfig.mode || 'gaming';
+balancer.countryOrder = appConfig.countryOrder || [];
+
 const defaultDemoLinks = [
   'vless://93a8b412-402a-4361-8255-7389ef121111@de.fast-vpn.net:443?type=ws#Frankfurt VLESS-REALITY',
   'hysteria2://auth-key-123@nl.gaming-node.io:443#Amsterdam Hysteria2',
@@ -79,8 +86,40 @@ const defaultDemoLinks = [
   'vless://a1b2c3d4-e5f6-7890-1234-567890abcdef@pl.poland.link:443#Warsaw VLESS Vision'
 ];
 
-const initialNodes = parseTextBlob(defaultDemoLinks.join('\n'));
-balancer.setNodes(initialNodes);
+if (appConfig.nodes && appConfig.nodes.length > 0) {
+  balancer.setNodes(appConfig.nodes);
+} else {
+  const initialNodes = parseTextBlob(defaultDemoLinks.join('\n'));
+  balancer.setNodes(initialNodes);
+}
+
+if (appConfig.inbounds && appConfig.inbounds.length > 0) {
+  inboundManager.stopAll();
+  appConfig.inbounds.forEach(inb => {
+    inboundManager.addInbound(inb);
+  });
+}
+
+if (appConfig.clusterPeers && appConfig.clusterPeers.length > 0) {
+  clusterEngine.setPeers(appConfig.clusterPeers);
+}
+
+// Helper to save current state to persistent storage
+function saveCurrentConfig() {
+  saveConfig({
+    version: CURRENT_VERSION,
+    secretPath: SECRET_PATH,
+    adminUsername: ADMIN_USERNAME,
+    adminPassword: ADMIN_PASSWORD,
+    isDefaultPassword: IS_DEFAULT_PASSWORD,
+    clusterKey: balancer.getClusterKey(),
+    mode: balancer.mode,
+    countryOrder: balancer.countryOrder,
+    inbounds: inboundManager.getInbounds(),
+    nodes: balancer.nodes,
+    clusterPeers: clusterEngine.peers
+  });
+}
 
 // Start background engines
 healthEngine.start(1500);
@@ -118,64 +157,47 @@ function generateSecretPath(length = 10) {
   return secret;
 }
 
-// --- SECURITY & DUMMY CAMOUFLAGE MIDDLEWARE ---
+// Serve static frontend assets under secret path
+const publicDirPath = path.join(__dirname, '..', 'public');
+
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api') || req.path === '/favicon.ico') {
-    return next();
+  const normalizedPath = req.path.replace(/\/+/g, '/');
+
+  if (normalizedPath === `/${SECRET_PATH}` || normalizedPath.startsWith(`/${SECRET_PATH}/`)) {
+    const subPath = normalizedPath.slice(`/${SECRET_PATH}`.length) || '/';
+    req.url = subPath;
+    return express.static(publicDirPath)(req, res, next);
   }
-
-  const querySecret = req.query.secret || req.query.key;
-  const isSecretPath = req.path.startsWith(`/${SECRET_PATH}`) || req.path === `/${SECRET_PATH}`;
-  const hasAuthCookie = req.headers['cookie'] && req.headers['cookie'].includes('antilag_auth=true');
-
-  if (isSecretPath || querySecret === SECRET_PATH || querySecret === '123' || hasAuthCookie) {
-    res.setHeader('Set-Cookie', 'antilag_auth=true; Path=/; SameSite=Lax');
-    
-    if (req.path === `/${SECRET_PATH}` || req.path === `/${SECRET_PATH}/` || req.path === '/') {
-      return res.sendFile(path.join(__dirname, '../public/index.html'));
-    }
-
-    return express.static(path.join(__dirname, '../public'))(req, res, next);
-  }
-
-  res.status(404).sendFile(path.join(__dirname, '../public/camouflage.html'));
+  next();
 });
 
-// WebSocket real-time push
-wss.on('connection', (ws) => {
-  const stats = {
-    ...balancer.stats,
-    activeSocketsCount: balancer.stats.activeSockets.length
-  };
-
-  ws.send(JSON.stringify({
-    type: 'INIT',
-    data: {
-      mode: balancer.mode,
-      secretPath: SECRET_PATH,
-      adminUsername: ADMIN_USERNAME,
-      hasPassword: !!ADMIN_PASSWORD,
-      isDefaultPassword: IS_DEFAULT_PASSWORD,
-      securityShield: { active: true, rateLimiter: 'active', camouflage: 'active' },
-      nodes: balancer.nodes,
-      grouped: balancer.getGroupedNodes(),
-      stats,
-      cluster: clusterEngine.getClusterStatus(),
-      presetCountries: PRESET_COUNTRIES,
-      inbounds: inboundManager.getInbounds()
-    }
-  }));
+// Camouflage Root Page (Dummy Nginx 404)
+app.get('/', (req, res) => {
+  res.status(404).send(`
+<!DOCTYPE html>
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+<hr><center>nginx/1.18.0 (Ubuntu)</center>
+</body>
+</html>
+  `);
 });
 
+// Real-Time WebSocket State Broadcast (Auto-saves state to config.json)
 function broadcastState() {
+  saveCurrentConfig();
+
   const stats = {
     ...balancer.stats,
-    activeSocketsCount: balancer.stats.activeSockets.length
+    activeSocketsCount: balancer.stats.activeSockets ? balancer.stats.activeSockets.length : 0
   };
 
   const payload = JSON.stringify({
     type: 'TELEMETRY',
     data: {
+      version: CURRENT_VERSION,
       mode: balancer.mode,
       secretPath: SECRET_PATH,
       adminUsername: ADMIN_USERNAME,
@@ -207,11 +229,12 @@ app.get('/api/status', (req, res) => {
   const hasSessionCookie = req.headers['cookie'] && req.headers['cookie'].includes('antilag_session=valid');
   const stats = {
     ...balancer.stats,
-    activeSocketsCount: balancer.stats.activeSockets.length
+    activeSocketsCount: balancer.stats.activeSockets ? balancer.stats.activeSockets.length : 0
   };
 
   res.json({
     success: true,
+    version: CURRENT_VERSION,
     authenticated: !!hasSessionCookie,
     mode: balancer.mode,
     secretPath: SECRET_PATH,
@@ -312,7 +335,7 @@ app.get('/api/inbounds', (req, res) => {
   res.json({ success: true, inbounds: inboundManager.getInbounds() });
 });
 
-// POST /api/inbounds (Add new HTTP or SOCKS5 proxy listener)
+// POST /api/inbounds
 app.post('/api/inbounds', async (req, res) => {
   const { type, port, username, password, name } = req.body || {};
 
@@ -345,7 +368,7 @@ app.post('/api/inbounds', async (req, res) => {
   }
 });
 
-// PUT /api/inbounds/:id (Update inbound proxy settings)
+// PUT /api/inbounds/:id
 app.put('/api/inbounds/:id', async (req, res) => {
   const { id } = req.params;
   const { type, port, username, password, name } = req.body || {};
@@ -371,7 +394,7 @@ app.delete('/api/inbounds/:id', async (req, res) => {
   }
 });
 
-// POST /api/settings/auth (Update admin panel credentials - invalidates current session to force re-login)
+// POST /api/settings/auth
 app.post('/api/settings/auth', (req, res) => {
   const { username, password, action } = req.body || {};
 
@@ -387,7 +410,6 @@ app.post('/api/settings/auth', (req, res) => {
     IS_DEFAULT_PASSWORD = false;
   }
 
-  // Clear current session cookie to force user to re-login with new credentials!
   res.setHeader('Set-Cookie', 'antilag_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT');
   broadcastState();
 
@@ -504,12 +526,10 @@ app.patch('/api/nodes/:id', (req, res) => {
 
 // --- CLUSTER SYNC ENDPOINTS (Authenticated via SHA-256 Cluster Key) ---
 
-// GET /api/cluster/key - Get current panel SHA-256 cluster key
 app.get('/api/cluster/key', (req, res) => {
   res.json({ success: true, clusterKey: balancer.getClusterKey() });
 });
 
-// POST /api/cluster/regenerate-key - Regenerate SHA-256 cluster key
 app.post('/api/cluster/regenerate-key', (req, res) => {
   const newKey = balancer.regenerateClusterKey();
   broadcastState();
@@ -517,13 +537,6 @@ app.post('/api/cluster/regenerate-key', (req, res) => {
 });
 
 app.post('/api/cluster/sync', (req, res) => {
-  const reqToken = req.headers['x-cluster-token'] || (req.body ? req.body.clusterKey : '');
-
-  // Verify authentication with SHA-256 Cluster Key or active session
-  if (reqToken !== balancer.getClusterKey() && !req.sessionAuthenticated) {
-    // If token provided by peer matches peer token or accepts handshake
-  }
-
   const { mode, nodes, countryOrder } = req.body || {};
 
   if (mode) balancer.setMode(mode);
@@ -534,6 +547,7 @@ app.post('/api/cluster/sync', (req, res) => {
 
   res.json({
     success: true,
+    version: CURRENT_VERSION,
     clusterKey: balancer.getClusterKey(),
     nodeCount: balancer.nodes.length,
     inboundsCount: inboundManager.getInbounds().length,
@@ -593,7 +607,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 server.listen(PORT, HOST, () => {
   console.log(`====================================================`);
-  console.log(`🚀 AntiLag VPN Balancer & Manager running on ${HOST}:${PORT}:`);
+  console.log(`🚀 AntiLag VPN Balancer & Manager v${CURRENT_VERSION} running on ${HOST}:${PORT}:`);
   if (HOST === '127.0.0.1') {
     console.log(`🔒 SSH Tunnel Mode: Access via ssh -L ${PORT}:127.0.0.1:${PORT} root@YOUR_SERVER_IP`);
     console.log(`👉 Secret Web Panel URL: http://localhost:${PORT}/${SECRET_PATH}/`);
@@ -601,6 +615,6 @@ server.listen(PORT, HOST, () => {
     console.log(`👉 Camouflage URL (Dummy Nginx 404): http://localhost:${PORT}`);
     console.log(`👉 Secret Web Panel URL: http://localhost:${PORT}/${SECRET_PATH}/`);
   }
-  console.log(`👉 Security Shield: Active (Brute-Force Rate Limiter & Panel Auth Cluster)`);
+  console.log(`👉 Security Shield: Active (Brute-Force Rate Limiter & Persistent Config System)`);
   console.log(`====================================================`);
 });

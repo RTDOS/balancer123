@@ -103,6 +103,10 @@ echo -e "${GREEN}Выбран режим: ${MODE_NAME}${NC}"
 echo -e "\n${YELLOW}📦 [3/5] Развертывание исходного кода AntiLag (RTDOS/balancer123)...${NC}"
 mkdir -p "$INSTALL_DIR"
 
+if [ -f "$INSTALL_DIR/config.json" ]; then
+  cp "$INSTALL_DIR/config.json" /tmp/config.json.bak &> /dev/null || true
+fi
+
 if [ -f "./package.json" ]; then
   cp -r ./* "$INSTALL_DIR/" &> /dev/null || true
 else
@@ -112,6 +116,11 @@ else
     rm -rf "$INSTALL_DIR"
     git clone https://github.com/RTDOS/balancer123.git "$INSTALL_DIR" || cp -r . "$INSTALL_DIR"
   fi
+fi
+
+if [ -f "/tmp/config.json.bak" ]; then
+  cp /tmp/config.json.bak "$INSTALL_DIR/config.json" &> /dev/null || true
+  rm -f /tmp/config.json.bak &> /dev/null || true
 fi
 
 cd "$INSTALL_DIR"

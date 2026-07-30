@@ -1,0 +1,123 @@
+{
+  "version": "4.1.0",
+  "secretPath": "secret",
+  "adminUsername": "admin",
+  "adminPassword": "admin",
+  "isDefaultPassword": true,
+  "clusterKey": "eee888f2d5c190591cae68e293ab38cb129f5998689b7712f3de3face5db542d",
+  "mode": "gaming",
+  "countryOrder": [],
+  "inbounds": [
+    {
+      "id": "default-socks5",
+      "name": "Main SOCKS5 Proxy (1080)",
+      "type": "socks5",
+      "port": 1080,
+      "username": "",
+      "password": "",
+      "connectionUrl": "socks5://localhost:1080"
+    },
+    {
+      "id": "default-http",
+      "name": "Main HTTP Proxy (1081)",
+      "type": "http",
+      "port": 1081,
+      "username": "",
+      "password": "",
+      "connectionUrl": "http://localhost:1081"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "910dfe7ec7",
+      "name": "Frankfurt VLESS-REALITY",
+      "type": "VLESS",
+      "address": "de.fast-vpn.net",
+      "port": 443,
+      "raw": "vless://93a8b412-402a-4361-8255-7389ef121111@de.fast-vpn.net:443?type=ws#Frankfurt VLESS-REALITY",
+      "countryCode": "DE",
+      "countryName": "Germany",
+      "flag": "🇩🇪",
+      "status": "active",
+      "ping": 48,
+      "jitter": 0,
+      "lossRatio": 0
+    },
+    {
+      "id": "7113cd7294",
+      "name": "Amsterdam Hysteria2",
+      "type": "Hysteria2",
+      "address": "nl.gaming-node.io",
+      "port": 443,
+      "raw": "hysteria2://auth-key-123@nl.gaming-node.io:443#Amsterdam Hysteria2",
+      "countryCode": "DE",
+      "countryName": "Germany",
+      "flag": "🇩🇪",
+      "status": "active",
+      "ping": 27,
+      "jitter": 2,
+      "lossRatio": 0
+    },
+    {
+      "id": "52662311bd",
+      "name": "Helsinki Shadowsocks AEAD",
+      "type": "Shadowsocks",
+      "address": "fi.helsinki.node",
+      "port": 8388,
+      "raw": "ss://Y2hhY2hhMjAtcG9seTEzMDU6cGFzc3dvcmQxMjM=@fi.helsinki.node:8388#Helsinki Shadowsocks AEAD",
+      "countryCode": "DE",
+      "countryName": "Germany",
+      "flag": "🇩🇪",
+      "status": "active",
+      "ping": 45,
+      "jitter": 1,
+      "lossRatio": 0
+    },
+    {
+      "id": "a0bd07e173",
+      "name": "Virginia WireGuard Mesh",
+      "type": "WireGuard",
+      "address": "wg.mesh.vpn",
+      "port": 51820,
+      "raw": "wg://wg.mesh.vpn:51820#Virginia WireGuard Mesh",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "flag": "🇬🇧",
+      "status": "active",
+      "ping": 26,
+      "jitter": 0,
+      "lossRatio": 0
+    },
+    {
+      "id": "1107cc7c02",
+      "name": "Singapore Trojan Tunnel",
+      "type": "Trojan",
+      "address": "sg.singapore.net",
+      "port": 443,
+      "raw": "trojan://pass999@sg.singapore.net:443#Singapore Trojan Tunnel",
+      "countryCode": "SG",
+      "countryName": "Singapore",
+      "flag": "🇸🇬",
+      "status": "active",
+      "ping": 25,
+      "jitter": 2,
+      "lossRatio": 0
+    },
+    {
+      "id": "0ec0af1569",
+      "name": "Warsaw VLESS Vision",
+      "type": "VLESS",
+      "address": "pl.poland.link",
+      "port": 443,
+      "raw": "vless://a1b2c3d4-e5f6-7890-1234-567890abcdef@pl.poland.link:443#Warsaw VLESS Vision",
+      "countryCode": "PL",
+      "countryName": "Poland",
+      "flag": "🇵🇱",
+      "status": "active",
+      "ping": 45,
+      "jitter": 3,
+      "lossRatio": 0
+    }
+  ],
+  "clusterPeers": []
+}
