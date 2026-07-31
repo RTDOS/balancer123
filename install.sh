@@ -73,6 +73,29 @@ fi
 
 echo -e "${GREEN}✅ Все зависимости укомплектованы: Node.js $(node -v), npm $(npm -v)${NC}"
 
+# Install sing-box helper binary for TUIC v5 QUIC inbounds
+SINGBOX_BIN="/opt/antilag/bin/sing-box"
+if [ ! -f "$SINGBOX_BIN" ]; then
+  echo -e "${YELLOW}⚙️ Установка официального ядра sing-box (TUIC v5 / QUIC TLS 1.3)...${NC}"
+  mkdir -p /opt/antilag/bin
+  ARCH=$(uname -m)
+  if [ "$ARCH" = "x86_64" ]; then
+    SB_ARCH="amd64"
+  elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    SB_ARCH="arm64"
+  else
+    SB_ARCH="amd64"
+  fi
+
+  URL="https://github.com/SagerNet/sing-box/releases/download/v1.9.3/sing-box-1.9.3-linux-${SB_ARCH}.tar.gz"
+  curl -sSL "$URL" -o /tmp/singbox.tar.gz && \
+  tar -xzf /tmp/singbox.tar.gz -C /tmp && \
+  cp /tmp/sing-box-1.9.3-linux-${SB_ARCH}/sing-box "$SINGBOX_BIN" && \
+  chmod +x "$SINGBOX_BIN" &> /dev/null || true
+  rm -rf /tmp/singbox* &> /dev/null || true
+  echo -e "${GREEN}✅ sing-box ядро успешно установлено: /opt/antilag/bin/sing-box${NC}"
+fi
+
 echo -e "\n${CYAN}=======================================================${NC}"
 echo -e "${PURPLE}🛠️ [2/5] Выберите режим работы панели управления:${NC}"
 echo -e "${CYAN}=======================================================${NC}"

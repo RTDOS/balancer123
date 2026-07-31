@@ -1,14 +1,85 @@
 const net = require('net');
 const http = require('http');
 const dgram = require('dgram');
-const { exec } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { spawn, execSync, exec } = require('child_process');
 
 /**
- * Advanced Multi-Inbound Proxy Manager (SOCKS5, HTTP, VLESS TCP & TUIC UDP/QUIC)
+ * Advanced Multi-Inbound Proxy Manager (SOCKS5, HTTP, VLESS TCP & TUIC v5 QUIC)
  * Manages multiple dynamic proxy listeners, custom ports, individual authentication/UUIDs,
  * automated Linux OS firewall port opening (ufw/iptables TCP & UDP), real-time traffic monitoring,
  * full-duplex TCP/UDP tunneling, and live connection string generator.
  */
+
+let isDownloadingSingBox = false;
+
+function findSingBoxBinary() {
+  const possiblePaths = [
+    '/opt/antilag/bin/sing-box',
+    '/usr/local/bin/sing-box',
+    '/usr/bin/sing-box',
+    'C:\\opt\\antilag\\bin\\sing-box.exe',
+    path.join(__dirname, '..', 'bin', 'sing-box'),
+    path.join(__dirname, '..', 'bin', 'sing-box.exe')
+  ];
+
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) return p;
+  }
+
+  try {
+    const whichRes = execSync(os.platform() === 'win32' ? 'where sing-box' : 'which sing-box', { encoding: 'utf-8' }).trim();
+    if (whichRes && fs.existsSync(whichRes.split('\n')[0])) {
+      return whichRes.split('\n')[0];
+    }
+  } catch (e) {}
+
+  return null;
+}
+
+function ensureTlsCertificates() {
+  const certDir = path.join(__dirname, '..', 'certs');
+  const certPath = path.join(certDir, 'cert.pem');
+  const keyPath = path.join(certDir, 'key.pem');
+
+  if (!fs.existsSync(certDir)) {
+    try { fs.mkdirSync(certDir, { recursive: true }); } catch (e) {}
+  }
+
+  if (!fs.existsSync(certPath) || !fs.existsSync(keyPath)) {
+    try {
+      execSync(`openssl req -x509 -newkey rsa:2048 -nodes -keyout "${keyPath}" -out "${certPath}" -days 3650 -subj "/CN=www.bing.com"`, { stdio: 'ignore' });
+    } catch (e) {}
+  }
+
+  return { certPath, keyPath };
+}
+
+function triggerSingBoxAutoDownload() {
+  if (isDownloadingSingBox || os.platform() !== 'linux') return;
+  isDownloadingSingBox = true;
+
+  const binDir = path.join(__dirname, '..', 'bin');
+  const targetBin = path.join(binDir, 'sing-box');
+  if (!fs.existsSync(binDir)) {
+    try { fs.mkdirSync(binDir, { recursive: true }); } catch (e) {}
+  }
+
+  const arch = os.arch() === 'arm64' ? 'arm64' : 'amd64';
+  const url = `https://github.com/SagerNet/sing-box/releases/download/v1.9.3/sing-box-1.9.3-linux-${arch}.tar.gz`;
+  
+  console.log(`⚙️ [AntiLag Core] Auto-downloading sing-box binary for TUIC v5 / QUIC support...`);
+
+  const cmd = `curl -sSL "${url}" -o /tmp/sb.tar.gz && tar -xzf /tmp/sb.tar.gz -C /tmp && cp /tmp/sing-box-1.9.3-linux-${arch}/sing-box "${targetBin}" && chmod +x "${targetBin}" && rm -rf /tmp/sb*`;
+  exec(cmd, (err) => {
+    isDownloadingSingBox = false;
+    if (!err && fs.existsSync(targetBin)) {
+      console.log(`✅ [AntiLag Core] sing-box binary installed successfully to ${targetBin}!`);
+    }
+  });
+}
 
 function openFirewallPort(port) {
   const p = parseInt(port);
@@ -246,14 +317,91 @@ class InboundProxyManager {
     this.inbounds.clear();
   }
 
-  // --- ULTRA-FAST TUIC v5 / QUIC UDP & TCP INBOUND PROXY IMPLEMENTATION ---
+  // --- ULTRA-FAST TUIC v5 / QUIC NATIVE INBOUND PROXY IMPLEMENTATION ---
   createTuicServer(config) {
     const EventEmitter = require('events').EventEmitter;
     const serverWrapper = new EventEmitter();
+    const port = config.port;
+
+    const singboxBin = findSingBoxBinary();
+    const certs = ensureTlsCertificates();
+    const uuid = normalizeUuid(config.username);
+    const password = config.password || 'tuicpass123';
+
+    if (singboxBin && fs.existsSync(certs.certPath)) {
+      const configPath = path.join(os.tmpdir(), `antilag_tuic_${port}.json`);
+      const singboxConfig = {
+        log: { level: "warn" },
+        inbounds: [
+          {
+            type: "tuic",
+            tag: "tuic-in",
+            listen: "::",
+            listen_port: port,
+            users: [
+              {
+                uuid: uuid,
+                password: password
+              }
+            ],
+            congestion_control: "bbr",
+            tls: {
+              enabled: true,
+              alpn: ["h3"],
+              certificate_path: certs.certPath,
+              key_path: certs.keyPath
+            }
+          }
+        ],
+        outbounds: [
+          {
+            type: "socks",
+            tag: "antilag-balancer",
+            server: "127.0.0.1",
+            server_port: 1080
+          }
+        ]
+      };
+
+      try {
+        fs.writeFileSync(configPath, JSON.stringify(singboxConfig, null, 2));
+      } catch (e) {}
+
+      console.log(`🚀 [Inbound TUIC v5] Launching native sing-box QUIC engine on port ${port}...`);
+      const child = spawn(singboxBin, ['run', '-c', configPath], { stdio: 'pipe' });
+
+      child.on('error', (err) => {
+        serverWrapper.emit('error', err);
+      });
+
+      child.stderr.on('data', (data) => {
+        const str = data.toString();
+        if (str.includes('address already in use')) {
+          serverWrapper.emit('error', { code: 'EADDRINUSE', message: `Port ${port} in use` });
+        }
+      });
+
+      serverWrapper.listen = (portNum, host, callback) => {
+        if (typeof callback === 'function') setTimeout(callback, 200);
+        return serverWrapper;
+      };
+
+      serverWrapper.close = (cb) => {
+        try { child.kill('SIGTERM'); } catch (e) {}
+        try { fs.unlinkSync(configPath); } catch (e) {}
+        if (cb) cb();
+        return serverWrapper;
+      };
+
+      return serverWrapper;
+    }
+
+    // Auto-trigger background download of sing-box binary if missing
+    triggerSingBoxAutoDownload();
 
     const udpSocket = dgram.createSocket('udp4');
     const tcpServer = net.createServer();
-    const udpSessions = new Map(); // clientKey -> { targetSocket, socketId }
+    const udpSessions = new Map();
 
     serverWrapper.listen = (port, host, callback) => {
       udpSocket.on('error', (err) => serverWrapper.emit('error', err));
@@ -278,169 +426,6 @@ class InboundProxyManager {
       try { tcpServer.close(cb); } catch (e) { if (cb) cb(); }
       return serverWrapper;
     };
-
-    // TCP client connection logic
-    tcpServer.on('connection', (clientSocket) => {
-      const socketId = 'tuic_tcp_' + Math.random().toString(36).substring(2, 10);
-      let authenticatedUser = config.username || 'TUIC Stream Client';
-
-      clientSocket.once('data', (header) => {
-        try {
-          let targetHost = '127.0.0.1';
-          let targetPort = 443;
-
-          if (header.length >= 4) {
-            const addrType = header[1];
-            if (addrType === 0x01 && header.length >= 8) {
-              targetHost = header.slice(2, 6).join('.');
-              targetPort = header.readUInt16BE(6);
-            } else if (addrType === 0x02 && header.length >= 4) {
-              const domainLen = header[2];
-              if (header.length >= 3 + domainLen + 2) {
-                targetHost = header.slice(3, 3 + domainLen).toString('utf-8');
-                targetPort = header.readUInt16BE(3 + domainLen);
-              }
-            }
-          }
-
-          const route = this.balancer.routeConnection(targetHost, targetPort, 'TUIC', {
-            socketId,
-            user: authenticatedUser,
-            displayTarget: targetHost,
-            inboundPort: config.port
-          });
-
-          this.onStateChange();
-
-          const targetSocket = net.connect({ host: targetHost, port: targetPort }, () => {
-            clientSocket.write(Buffer.from([0x00, 0x00]));
-
-            clientSocket.on('data', (chunk) => {
-              this.balancer.updateSocketTraffic(socketId, 0, chunk.length);
-            });
-
-            targetSocket.on('data', (chunk) => {
-              this.balancer.updateSocketTraffic(socketId, chunk.length, 0);
-            });
-
-            clientSocket.pipe(targetSocket);
-            targetSocket.pipe(clientSocket);
-          });
-
-          targetSocket.on('error', () => {
-            clientSocket.destroy();
-            this.balancer.removeActiveSocket(socketId);
-            this.onStateChange();
-          });
-
-          clientSocket.on('close', () => {
-            targetSocket.destroy();
-            this.balancer.removeActiveSocket(socketId);
-            this.onStateChange();
-          });
-        } catch (e) {
-          clientSocket.destroy();
-        }
-      });
-    });
-
-    // UDP QUIC datagram logic (TUIC v5 / QUIC Protocol Handler)
-    udpSocket.on('message', (msg, rinfo) => {
-      if (msg.length < 4) return;
-
-      // Fast-path: If QUIC Long Header Initial Packet (0x80/0xc0), reply with QUIC Handshake ACK
-      if ((msg[0] & 0x80) === 0x80 && msg.length >= 12) {
-        try {
-          const dcidLen = msg[5] <= 20 ? msg[5] : 8;
-          const dcid = msg.subarray(6, 6 + dcidLen);
-          const scidOffset = 6 + dcidLen;
-          if (msg.length >= scidOffset + 1) {
-            const scidLen = msg[scidOffset] <= 20 ? msg[scidOffset] : 8;
-            const scid = msg.subarray(scidOffset + 1, scidOffset + 1 + scidLen);
-
-            const ackBuf = Buffer.alloc(7 + scidLen + dcidLen + 4);
-            ackBuf[0] = 0x80;
-            ackBuf.writeUInt32BE(0x00000001, 1);
-            ackBuf[5] = scidLen;
-            scid.copy(ackBuf, 6);
-            ackBuf[6 + scidLen] = dcidLen;
-            dcid.copy(ackBuf, 7 + scidLen);
-            ackBuf.writeUInt32BE(0x00000001, 7 + scidLen + dcidLen);
-
-            udpSocket.send(ackBuf, rinfo.port, rinfo.address);
-          }
-        } catch (e) {}
-      }
-
-      const clientKey = `${rinfo.address}:${rinfo.port}`;
-      let session = udpSessions.get(clientKey);
-
-      if (!session) {
-        let targetHost = '127.0.0.1';
-        let targetPort = 443;
-
-        try {
-          let offset = 0;
-          if (msg[0] === 0x00 || msg[0] === 0x01 || msg[0] === 0x02 || msg[0] === 0x10) {
-            offset = 17;
-            if (msg.length > offset) {
-              const addrType = msg[offset];
-              offset++;
-              if (addrType === 0x01 && msg.length >= offset + 6) {
-                targetHost = `${msg[offset]}.${msg[offset+1]}.${msg[offset+2]}.${msg[offset+3]}`;
-                targetPort = msg.readUInt16BE(offset + 4);
-              } else if (addrType === 0x02 && msg.length >= offset + 1) {
-                const domainLen = msg[offset];
-                offset++;
-                if (msg.length >= offset + domainLen + 2) {
-                  targetHost = msg.toString('utf-8', offset, offset + domainLen);
-                  targetPort = msg.readUInt16BE(offset + domainLen);
-                }
-              }
-            }
-          }
-        } catch (e) {}
-
-        const socketId = 'tuic_udp_' + Math.random().toString(36).substring(2, 10);
-        const route = this.balancer.routeConnection(targetHost, targetPort, 'TUIC', {
-          socketId,
-          user: config.username || 'TUIC QUIC Client',
-          displayTarget: targetHost,
-          inboundPort: config.port
-        });
-
-        this.onStateChange();
-
-        const targetSocket = net.connect({ host: targetHost, port: targetPort }, () => {
-          this.balancer.updateSocketTraffic(socketId, 0, msg.length);
-        });
-
-        targetSocket.on('data', (chunk) => {
-          this.balancer.updateSocketTraffic(socketId, chunk.length, 0);
-          try {
-            udpSocket.send(chunk, rinfo.port, rinfo.address);
-          } catch (e) {}
-        });
-
-        const closeSession = () => {
-          try { targetSocket.destroy(); } catch (e) {}
-          udpSessions.delete(clientKey);
-          this.balancer.removeActiveSocket(socketId);
-          this.onStateChange();
-        };
-
-        targetSocket.on('error', closeSession);
-        targetSocket.on('close', closeSession);
-
-        session = { targetSocket, socketId };
-        udpSessions.set(clientKey, session);
-      } else {
-        try {
-          session.targetSocket.write(msg);
-          this.balancer.updateSocketTraffic(session.socketId, 0, msg.length);
-        } catch (e) {}
-      }
-    });
 
     return serverWrapper;
   }
