@@ -204,8 +204,10 @@ class AntiLagBalancer {
       return this.createSocketRecord(targetIp, targetPort, protocol, directLoopNode, 'Anti-Loop Guard: Self/Node Loop Prevented', meta);
     }
 
+    const shouldBypassRu = meta.bypassRu !== undefined ? meta.bypassRu : this.bypassRuTraffic;
+
     // 0b. Check RU Traffic Bypass Filter (Direct Connection for .ru / Russian Services)
-    if (this.bypassRuTraffic && this.isRuDomain(rawHost)) {
+    if (shouldBypassRu && this.isRuDomain(rawHost)) {
       const directRuNode = {
         id: 'direct_ru',
         name: 'Direct (RU Bypass)',
@@ -216,7 +218,7 @@ class AntiLagBalancer {
         lossRatio: 0,
         status: 'active'
       };
-      return this.createSocketRecord(targetIp, targetPort, protocol, directRuNode, 'Direct RU Traffic Bypass (No VPN)', meta);
+      return this.createSocketRecord(targetIp, targetPort, protocol, directRuNode, 'Direct RU Traffic Bypass (Per-Inbound Config)', meta);
     }
 
     const activeNodes = this.nodes.filter(n => n.status !== 'dead');

@@ -776,6 +776,14 @@ function renderInboundsConfigCards(inbounds) {
         </div>
       </div>
 
+      <!-- Per-Inbound RU Bypass Checkbox -->
+      <div style="margin-top:4px; background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:8px 12px;">
+        <label style="font-size:12px; color:#34d399; font-weight:600; display:flex; align-items:center; gap:8px; cursor:pointer; margin:0;">
+          <input type="checkbox" id="inbBypassRu_${inb.id}" ${inb.bypassRu !== false ? 'checked' : ''} onchange="updateInboundPreview('${inb.id}')" style="width:16px; height:16px; accent-color:#10b981; cursor:pointer;">
+          <span>🇷🇺 Обход RU-трафика (Прямое подключение без ВПН для .ru, VK, Яндекс, Сбер)</span>
+        </label>
+      </div>
+
       <!-- Live Dynamic Connection String Preview Box -->
       <div>
         <label style="font-size:11px; color:#9ca3af;">Динамическая ссылка подключения (Live Connection String):</label>
@@ -931,11 +939,13 @@ function saveInboundProxy(id) {
   const port = document.getElementById(`inbPort_${id}`).value;
   const username = document.getElementById(`inbUser_${id}`).value;
   const password = document.getElementById(`inbPass_${id}`).value;
+  const bypassRuEl = document.getElementById(`inbBypassRu_${id}`);
+  const bypassRu = bypassRuEl ? bypassRuEl.checked : true;
 
   fetch(`/api/inbounds/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type, port, username, password })
+    body: JSON.stringify({ type, port, username, password, bypassRu })
   }).then(res => res.json())
     .then(data => {
       if (data.success) {
@@ -978,11 +988,13 @@ function submitAddInbound() {
   const port = document.getElementById('newInboundPort').value;
   const username = document.getElementById('newInboundUser').value;
   const password = document.getElementById('newInboundPass').value;
+  const bypassRuEl = document.getElementById('newInboundBypassRu');
+  const bypassRu = bypassRuEl ? bypassRuEl.checked : true;
 
   fetch('/api/inbounds', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type, port, username, password })
+    body: JSON.stringify({ type, port, username, password, bypassRu })
   }).then(res => res.json())
     .then(data => {
       if (data.success) {

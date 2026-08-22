@@ -83,19 +83,6 @@
                 <div class="mode-desc">Агрессивное переключение за 50мс для сайтов и видео.</div>
               </div>
             </button>
-          <!-- RU Traffic Filter Control -->
-          <div style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed rgba(255, 255, 255, 0.12); display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span style="font-size: 20px;">🇷🇺</span>
-              <div>
-                <div style="font-size: 13px; font-weight: 700; color: #34d399;">Обход RU-трафика (.ru / .рф)</div>
-                <div style="font-size: 11px; color: #9ca3af;">Прямой доступ для Яндекс, VK, Госуслуг, Сбера без ВПН</div>
-              </div>
-            </div>
-            <label style="position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; flex-shrink: 0;">
-              <input type="checkbox" id="bypassRuToggle" checked onchange="toggleBypassRu(this.checked)" style="opacity: 0; width: 0; height: 0;">
-              <span id="bypassRuSlider" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: #10b981; transition: .3s; border-radius: 24px; box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);"></span>
-            </label>
           </div>
         </div>
 
@@ -349,6 +336,12 @@
             <input type="text" id="newInboundPass" class="form-input" placeholder="например: X-Y7+0WBuF5" style="font-family:'JetBrains Mono', monospace;">
             <button class="btn btn-secondary btn-sm" type="button" onclick="generateNewInboundPasswordDirect()" title="Сгенерировать случайный пароль">🎲 Пароль</button>
           </div>
+        </div>
+        <div class="form-group" style="margin-top:14px; background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.25); border-radius:10px; padding:10px 14px;">
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:13px; color:#34d399; font-weight:700; margin:0;">
+            <input type="checkbox" id="newInboundBypassRu" checked style="width:18px; height:18px; accent-color:#10b981; cursor:pointer;">
+            <span>🇷🇺 Включить обход RU-трафика (.ru, VK, Яндекс, Сбер напрямик без ВПН)</span>
+          </label>
         </div>
       </div>
       <div class="modal-footer">

@@ -142,7 +142,8 @@ class InboundProxyManager {
       type: 'socks5',
       port: 1080,
       username: '',
-      password: ''
+      password: '',
+      bypassRu: true
     });
 
     this.addInbound({
@@ -151,7 +152,8 @@ class InboundProxyManager {
       type: 'http',
       port: 1081,
       username: '',
-      password: ''
+      password: '',
+      bypassRu: true
     });
 
     this.addInbound({
@@ -160,13 +162,15 @@ class InboundProxyManager {
       type: 'vless',
       port: 1082,
       username: '93a8b412-402a-4361-8255-7389ef121111',
-      password: ''
+      password: '',
+      bypassRu: true
     });
   }
 
   getInbounds() {
     return Array.from(this.inbounds.values()).map(inb => {
       const type = (inb.type || '').toLowerCase();
+      const bypassRu = inb.bypassRu !== false;
 
       if (type === 'vless') {
         const uuid = normalizeUuid(inb.username);
@@ -178,6 +182,7 @@ class InboundProxyManager {
           port: inb.port,
           username: uuid,
           password: '',
+          bypassRu,
           connectionUrl: `vless://${uuid}@localhost:${inb.port}?type=tcp#AntiLag_VLESS_${inb.port}`
         };
       }
@@ -193,6 +198,7 @@ class InboundProxyManager {
           port: inb.port,
           username: uuid,
           password: tuicPass,
+          bypassRu,
           connectionUrl: `tuic://${uuid}:${tuicPass}@localhost:${inb.port}?congestion_control=bbr&alpn=h3#AntiLag_TUIC_${inb.port}`
         };
       }
@@ -206,6 +212,7 @@ class InboundProxyManager {
           port: inb.port,
           username: inb.username || 'Telegram App',
           password: secret,
+          bypassRu,
           connectionUrl: `tg://proxy?server=localhost&port=${inb.port}&secret=${secret}`
         };
       }
@@ -218,12 +225,13 @@ class InboundProxyManager {
         port: inb.port,
         username: inb.username || '',
         password: inb.password || '',
+        bypassRu,
         connectionUrl: `${inb.type}://${authPart}localhost:${inb.port}`
       };
     });
   }
 
-  async addInbound({ id, name, type, port, username = '', password = '' }) {
+  async addInbound({ id, name, type, port, username = '', password = '', bypassRu = true }) {
     const inbId = id || `inbound-${Date.now()}-${Math.floor(Math.random()*1000)}`;
     const portNum = parseInt(port);
     const inbType = type.toLowerCase();
@@ -245,6 +253,7 @@ class InboundProxyManager {
       port: portNum,
       username: finalUser,
       password: password ? password.trim() : '',
+      bypassRu: bypassRu !== false,
       server: null
     };
 
@@ -277,7 +286,7 @@ class InboundProxyManager {
     return item;
   }
 
-  async updateInbound(id, { type, port, username, password, name }) {
+  async updateInbound(id, { type, port, username, password, name, bypassRu }) {
     const existing = this.inbounds.get(id);
     if (!existing) throw new Error(`Inbound proxy ${id} not found`);
 
@@ -290,15 +299,14 @@ class InboundProxyManager {
       closeFirewallPort(existing.port);
     }
 
-    await this.stopInbound(id);
-
-    return this.addInbound({
+    return await this.addInbound({
       id,
-      name: name || existing.name,
-      type: type ? type.toLowerCase() : existing.type,
+      name: name !== undefined ? name : existing.name,
+      type: type !== undefined ? type : existing.type,
       port: newPort || existing.port,
       username: username !== undefined ? username : existing.username,
-      password: password !== undefined ? password : existing.password
+      password: password !== undefined ? password : existing.password,
+      bypassRu: bypassRu !== undefined ? (bypassRu !== false) : (existing.bypassRu !== false)
     });
   }
 
@@ -472,7 +480,8 @@ class InboundProxyManager {
             socketId,
             user: config.username || 'Telegram App',
             displayTarget: `Telegram DC (${targetDc.host})`,
-            inboundPort: config.port
+            inboundPort: config.port,
+            bypassRu: config.bypassRu !== false
           });
 
           this.onStateChange();
@@ -577,7 +586,8 @@ class InboundProxyManager {
             socketId,
             user: authenticatedUser,
             displayTarget,
-            inboundPort: config.port
+            inboundPort: config.port,
+            bypassRu: config.bypassRu !== false
           });
 
           this.onStateChange();
@@ -714,7 +724,8 @@ class InboundProxyManager {
           socketId,
           user: authenticatedUser,
           displayTarget,
-          inboundPort: config.port
+          inboundPort: config.port,
+          bypassRu: config.bypassRu !== false
         });
 
         this.onStateChange();
@@ -814,7 +825,8 @@ class InboundProxyManager {
         socketId,
         user: authenticatedUser,
         displayTarget,
-        inboundPort: config.port
+        inboundPort: config.port,
+        bypassRu: config.bypassRu !== false
       });
 
       this.onStateChange();
