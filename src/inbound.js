@@ -14,6 +14,7 @@ const { spawn, execSync, exec } = require('child_process');
  */
 
 let isDownloadingSingBox = false;
+let isDownloadingMtg = false;
 
 function findSingBoxBinary() {
   const possiblePaths = [
@@ -37,6 +38,54 @@ function findSingBoxBinary() {
   } catch (e) {}
 
   return null;
+}
+
+function findMtgBinary() {
+  const possiblePaths = [
+    '/opt/antilag/bin/mtg',
+    '/usr/local/bin/mtg',
+    '/usr/bin/mtg',
+    'C:\\opt\\antilag\\bin\\mtg.exe',
+    path.join(__dirname, '..', 'bin', 'mtg'),
+    path.join(__dirname, '..', 'bin', 'mtg.exe')
+  ];
+
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) return p;
+  }
+
+  try {
+    const whichRes = execSync(os.platform() === 'win32' ? 'where mtg' : 'which mtg', { encoding: 'utf-8' }).trim();
+    if (whichRes && fs.existsSync(whichRes.split('\n')[0])) {
+      return whichRes.split('\n')[0];
+    }
+  } catch (e) {}
+
+  return null;
+}
+
+function triggerMtgAutoDownload() {
+  if (isDownloadingMtg || os.platform() !== 'linux') return;
+  isDownloadingMtg = true;
+
+  const binDir = path.join(__dirname, '..', 'bin');
+  const targetBin = path.join(binDir, 'mtg');
+  if (!fs.existsSync(binDir)) {
+    try { fs.mkdirSync(binDir, { recursive: true }); } catch (e) {}
+  }
+
+  const arch = os.arch() === 'arm64' ? 'arm64' : 'amd64';
+  const url = `https://github.com/9seconds/mtg/releases/download/v2.1.7/mtg-2.1.7-linux-${arch}.tar.gz`;
+
+  console.log(`⚙️ [AntiLag Core] Auto-downloading mtg binary for Telegram MTProto Fake-TLS...`);
+
+  const cmd = `curl -sSL "${url}" -o /tmp/mtg.tar.gz && tar -xzf /tmp/mtg.tar.gz -C /tmp && cp /tmp/mtg-2.1.7-linux-${arch}/mtg "${targetBin}" && chmod +x "${targetBin}" && rm -rf /tmp/mtg*`;
+  exec(cmd, (err) => {
+    isDownloadingMtg = false;
+    if (!err && fs.existsSync(targetBin)) {
+      console.log(`✅ [AntiLag Core] mtg binary installed successfully to ${targetBin}!`);
+    }
+  });
 }
 
 function ensureTlsCertificates() {
@@ -455,6 +504,45 @@ class InboundProxyManager {
 
   // --- TELEGRAM MTPROTO PROXY (FAKE-TLS OBFUSCATED) IMPLEMENTATION ---
   createMtprotoServer(config) {
+    const EventEmitter = require('events').EventEmitter;
+    const serverWrapper = new EventEmitter();
+    const port = config.port;
+
+    const mtgBin = findMtgBinary();
+    const secret = (config.password && config.password.length >= 30) ? config.password.trim() : 'ee00112233445566778899aabbccddeeff7777772e676f6f676c652e636f6d';
+
+    if (mtgBin) {
+      console.log(`🚀 [Inbound MTProto] Launching native Telegram mtg Fake-TLS engine on port ${port}...`);
+      const child = spawn(mtgBin, ['run', secret, '-b', `0.0.0.0:${port}`], { stdio: 'pipe' });
+
+      child.on('error', (err) => {
+        serverWrapper.emit('error', err);
+      });
+
+      child.stderr.on('data', (data) => {
+        const str = data.toString();
+        if (str.includes('address already in use') || str.includes('bind')) {
+          serverWrapper.emit('error', { code: 'EADDRINUSE', message: `Port ${port} in use` });
+        }
+      });
+
+      serverWrapper.listen = (portNum, host, callback) => {
+        if (typeof callback === 'function') setTimeout(callback, 200);
+        return serverWrapper;
+      };
+
+      serverWrapper.close = (cb) => {
+        try { child.kill('SIGTERM'); } catch (e) {}
+        if (cb) cb();
+        return serverWrapper;
+      };
+
+      return serverWrapper;
+    }
+
+    // Auto-trigger background download of mtg binary if missing
+    triggerMtgAutoDownload();
+
     const telegramDcs = [
       { host: '149.154.175.50', port: 443 }, // DC1
       { host: '149.154.167.50', port: 443 }, // DC2

@@ -96,6 +96,29 @@ if [ ! -f "$SINGBOX_BIN" ]; then
   echo -e "${GREEN}✅ sing-box ядро успешно установлено: /opt/antilag/bin/sing-box${NC}"
 fi
 
+# Install mtg helper binary for Telegram MTProto Fake-TLS inbounds
+MTG_BIN="/opt/antilag/bin/mtg"
+if [ ! -f "$MTG_BIN" ]; then
+  echo -e "${YELLOW}⚙️ Установка официального ядра mtg (Telegram MTProto Fake-TLS)...${NC}"
+  mkdir -p /opt/antilag/bin
+  ARCH=$(uname -m)
+  if [ "$ARCH" = "x86_64" ]; then
+    MTG_ARCH="amd64"
+  elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    MTG_ARCH="arm64"
+  else
+    MTG_ARCH="amd64"
+  fi
+
+  URL="https://github.com/9seconds/mtg/releases/download/v2.1.7/mtg-2.1.7-linux-${MTG_ARCH}.tar.gz"
+  curl -sSL "$URL" -o /tmp/mtg.tar.gz && \
+  tar -xzf /tmp/mtg.tar.gz -C /tmp && \
+  cp /tmp/mtg-2.1.7-linux-${MTG_ARCH}/mtg "$MTG_BIN" && \
+  chmod +x "$MTG_BIN" &> /dev/null || true
+  rm -rf /tmp/mtg* &> /dev/null || true
+  echo -e "${GREEN}✅ mtg ядро для Telegram успешно установлено: /opt/antilag/bin/mtg${NC}"
+fi
+
 echo -e "\n${CYAN}=======================================================${NC}"
 echo -e "${PURPLE}🛠️ [2/5] Выберите режим работы панели управления:${NC}"
 echo -e "${CYAN}=======================================================${NC}"
