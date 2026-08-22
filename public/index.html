@@ -378,8 +378,11 @@
 
         <div class="form-row" style="display:flex; gap:10px; margin-top:12px;">
           <div style="flex:2;">
-            <label>IP адрес или Домен сервера</label>
-            <input type="text" id="vlessNodeHost" class="form-input" placeholder="например: 185.220.101.5 или de.vpn.com">
+            <label>IP адрес или Домен (пусто = свой сервер)</label>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="vlessNodeHost" class="form-input" placeholder="пусто = IP этого сервера">
+              <button class="btn btn-secondary btn-sm" type="button" onclick="fillVlessSelfHostDirect()" title="Вставить IP этого сервера" style="white-space:nowrap;">🏠 Свой IP</button>
+            </div>
           </div>
           <div style="flex:1;">
             <label>Порт</label>

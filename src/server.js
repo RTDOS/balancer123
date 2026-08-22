@@ -209,32 +209,52 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Real-Time WebSocket State Broadcast (Auto-saves state to config.json)
-function broadcastState() {
-  saveCurrentConfig();
-
+// Helper to generate full telemetry payload
+function getTelemetryData() {
   const stats = {
     ...balancer.stats,
     activeSocketsCount: balancer.stats.activeSockets ? balancer.stats.activeSockets.length : 0
   };
 
+  return {
+    version: CURRENT_VERSION,
+    mode: balancer.mode,
+    secretPath: SECRET_PATH,
+    adminUsername: ADMIN_USERNAME,
+    hasPassword: !!ADMIN_PASSWORD,
+    isDefaultPassword: IS_DEFAULT_PASSWORD,
+    securityShield: { active: true, rateLimiter: 'active', camouflage: 'active' },
+    clusterKey: balancer.getClusterKey(),
+    nodes: balancer.nodes,
+    grouped: balancer.getGroupedNodes(),
+    stats,
+    cluster: clusterEngine.getClusterStatus(),
+    inbounds: inboundManager.getInbounds(),
+    presetCountries: PRESET_COUNTRIES,
+    connectionLogs: balancer.getConnectionLogs(),
+    activeOutboundId: balancer.activeOutboundId,
+    overallHistory: healthEngine.getTelemetryForRange(activeTelemetryRange)
+  };
+}
+
+// Immediate WebSocket State Delivery on Connection
+wss.on('connection', (ws) => {
+  try {
+    const payload = JSON.stringify({
+      type: 'INIT',
+      data: getTelemetryData()
+    });
+    ws.send(payload);
+  } catch (e) {}
+});
+
+// Real-Time WebSocket State Broadcast (Auto-saves state to config.json)
+function broadcastState() {
+  saveCurrentConfig();
+
   const payload = JSON.stringify({
     type: 'TELEMETRY',
-    data: {
-      version: CURRENT_VERSION,
-      mode: balancer.mode,
-      secretPath: SECRET_PATH,
-      adminUsername: ADMIN_USERNAME,
-      hasPassword: !!ADMIN_PASSWORD,
-      isDefaultPassword: IS_DEFAULT_PASSWORD,
-      securityShield: { active: true, rateLimiter: 'active', camouflage: 'active' },
-      nodes: balancer.nodes,
-      grouped: balancer.getGroupedNodes(),
-      stats,
-      cluster: clusterEngine.getClusterStatus(),
-      inbounds: inboundManager.getInbounds(),
-      overallHistory: healthEngine.getTelemetryForRange(activeTelemetryRange)
-    }
+    data: getTelemetryData()
   });
 
   wss.clients.forEach((client) => {
@@ -251,29 +271,12 @@ setInterval(broadcastState, 1500);
 // GET /api/status
 app.get('/api/status', (req, res) => {
   const hasSessionCookie = req.headers['cookie'] && req.headers['cookie'].includes('antilag_session=valid');
-  const stats = {
-    ...balancer.stats,
-    activeSocketsCount: balancer.stats.activeSockets ? balancer.stats.activeSockets.length : 0
-  };
+  const data = getTelemetryData();
 
   res.json({
     success: true,
-    version: CURRENT_VERSION,
     authenticated: !!hasSessionCookie,
-    mode: balancer.mode,
-    secretPath: SECRET_PATH,
-    adminUsername: ADMIN_USERNAME,
-    hasPassword: !!ADMIN_PASSWORD,
-    isDefaultPassword: IS_DEFAULT_PASSWORD,
-    securityShield: { active: true, rateLimiter: 'active', camouflage: 'active' },
-    clusterKey: balancer.getClusterKey(),
-    connectionLogs: balancer.getConnectionLogs(),
-    nodeCount: balancer.nodes.length,
-    activeOutboundId: balancer.activeOutboundId,
-    stats,
-    cluster: clusterEngine.getClusterStatus(),
-    presetCountries: PRESET_COUNTRIES,
-    inbounds: inboundManager.getInbounds()
+    ...data
   });
 });
 
@@ -468,10 +471,15 @@ app.get('/api/nodes', (req, res) => {
 
 // POST /api/nodes/create-vless - 1-Click Simple VLESS Node Creator
 app.post('/api/nodes/create-vless', (req, res) => {
-  const { name, host, port, uuid, security, sni, countryName, countryCode, flag } = req.body || {};
+  let { name, host, port, uuid, security, sni, countryName, countryCode, flag } = req.body || {};
 
-  if (!host || !port || !uuid) {
-    return res.status(400).json({ success: false, message: 'Хост/IP, порт и UUID обязательны для VLESS узла!' });
+  // Auto-detect host from request if omitted or blank
+  if (!host || !host.trim()) {
+    host = req.get('host') ? req.get('host').split(':')[0] : (balancer.serverPublicIp || '127.0.0.1');
+  }
+
+  if (!uuid || !uuid.trim()) {
+    return res.status(400).json({ success: false, message: 'UUID обязателен для VLESS узла!' });
   }
 
   const vlessPort = parseInt(port) || 443;
@@ -489,6 +497,12 @@ app.post('/api/nodes/create-vless', (req, res) => {
       country: countryName,
       code: countryCode,
       flag: flag || '🌐'
+    };
+  } else {
+    overrideCountry = {
+      country: 'AntiLag Local Server',
+      code: 'LOCAL',
+      flag: '⚡'
     };
   }
 

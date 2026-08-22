@@ -14,7 +14,11 @@ document.addEventListener('DOMContentLoaded', () => {
   connectWebSocket();
   fetchInitialStatus();
 
+  // Real-time socket uptimes tick
   setInterval(tickSocketUptimes, 1000);
+
+  // HTTP Fallback Polling (3s) to guarantee UI stays updated even if WebSockets are blocked
+  setInterval(fetchInitialStatus, 3000);
 });
 
 function formatBytes(bytes) {
@@ -112,29 +116,19 @@ function fetchInitialStatus() {
       if (data.success) {
         isAuthenticatedSession = !!data.authenticated;
 
-        // MANDATORY CHECK: If not logged in, force open Login Modal!
+        // Render full state immediately!
+        renderState(data);
+
+        // Check auth status for login modal display
         if (!isAuthenticatedSession) {
           document.getElementById('loginModal').classList.add('open');
-          return;
+        } else {
+          document.getElementById('loginModal').classList.remove('open');
         }
-
-        if (data.clusterKey) {
-          currentClusterKey = data.clusterKey;
-          renderClusterKeyUI(currentClusterKey);
-        }
-
-        if (data.inbounds) {
-          currentInboundsList = data.inbounds;
-          renderNavbarInboundsBadge(currentInboundsList);
-        }
-        if (data.secretPath) {
-          document.getElementById('secretPathBadge').innerText = `/${data.secretPath}/`;
-        }
-        hasAdminPassword = !!data.hasPassword;
-        currentAdminUsername = data.adminUsername || 'admin';
-        toggleDefaultPassBanner(data.isDefaultPassword);
-        updateModeUI(data.mode);
       }
+    })
+    .catch(err => {
+      console.error('Fetch status error', err);
     });
 }
 
@@ -186,61 +180,74 @@ function renderNavbarInboundsBadge(inbounds) {
 }
 
 function renderState(data) {
-  updateModeUI(data.mode);
+  if (!data) return;
 
-  if (data.clusterKey) {
-    currentClusterKey = data.clusterKey;
-    renderClusterKeyUI(currentClusterKey);
-  }
+  try {
+    updateModeUI(data.mode || 'gaming');
 
-  if (data.secretPath) {
-    document.getElementById('secretPathBadge').innerText = `/${data.secretPath}/`;
-  }
+    if (data.clusterKey) {
+      currentClusterKey = data.clusterKey;
+      renderClusterKeyUI(currentClusterKey);
+    }
 
-  if (data.inbounds) {
-    currentInboundsList = data.inbounds;
-    renderNavbarInboundsBadge(currentInboundsList);
-  }
+    if (data.secretPath) {
+      const badge = document.getElementById('secretPathBadge');
+      if (badge) badge.innerText = `/${data.secretPath}/`;
+    }
 
-  hasAdminPassword = !!data.hasPassword;
-  currentAdminUsername = data.adminUsername || 'admin';
-  toggleDefaultPassBanner(data.isDefaultPassword);
+    if (data.inbounds) {
+      currentInboundsList = data.inbounds;
+      renderNavbarInboundsBadge(currentInboundsList);
+    }
 
-  const nodes = data.nodes || [];
-  document.getElementById('nodeCount').innerText = nodes.length;
-  document.getElementById('preventedLags').innerText = data.stats.microLagPreventedCount || 0;
-  document.getElementById('totalConnections').innerText = data.stats.totalRoutedConnections || 0;
+    hasAdminPassword = !!data.hasPassword;
+    currentAdminUsername = data.adminUsername || 'admin';
+    toggleDefaultPassBanner(!!data.isDefaultPassword);
 
-  const activeSockCount = data.stats.activeSocketsCount || (data.stats.activeSockets ? data.stats.activeSockets.length : 0);
-  const activeSockEl = document.getElementById('activeSocketsCount');
-  if (activeSockEl) {
-    activeSockEl.innerText = activeSockCount;
-  }
+    const stats = data.stats || {};
+    const nodes = data.nodes || [];
 
-  const totalDown = formatBytes(data.stats.totalBytesDownloaded || 0);
-  const totalUp = formatBytes(data.stats.totalBytesUploaded || 0);
-  const totalTrafficEl = document.getElementById('totalTrafficDisplay');
-  if (totalTrafficEl) {
-    totalTrafficEl.innerText = `⬇️ ${totalDown} | ⬆️ ${totalUp}`;
-  }
+    const nodeCountEl = document.getElementById('nodeCount');
+    if (nodeCountEl) nodeCountEl.innerText = nodes.length;
 
-  currentNodesMap.clear();
-  nodes.forEach(n => currentNodesMap.set(n.id, n));
-  currentGroupedCountries = data.grouped || [];
+    const preventedLagsEl = document.getElementById('preventedLags');
+    if (preventedLagsEl) preventedLagsEl.innerText = stats.microLagPreventedCount || 0;
 
-  let avgPing = 0;
-  if (nodes.length > 0) {
-    const sum = nodes.reduce((acc, n) => acc + (n.ping || 0), 0);
-    avgPing = Math.round(sum / nodes.length);
-  }
-  document.getElementById('avgPing').innerText = `${avgPing} ms`;
+    const totalConnEl = document.getElementById('totalConnections');
+    if (totalConnEl) totalConnEl.innerText = stats.totalRoutedConnections || 0;
 
-  renderGroupedNodes(currentGroupedCountries);
-  renderSocketsTable(data.stats.activeSockets || []);
-  renderClusterPeers(data.cluster || {});
+    const activeSockCount = stats.activeSocketsCount || (stats.activeSockets ? stats.activeSockets.length : 0);
+    const activeSockEl = document.getElementById('activeSocketsCount');
+    if (activeSockEl) activeSockEl.innerText = activeSockCount;
 
-  if (data.overallHistory && telemetryChart) {
-    updateChartData(data.overallHistory);
+    const totalDown = formatBytes(stats.totalBytesDownloaded || 0);
+    const totalUp = formatBytes(stats.totalBytesUploaded || 0);
+    const totalTrafficEl = document.getElementById('totalTrafficDisplay');
+    if (totalTrafficEl) totalTrafficEl.innerText = `⬇️ ${totalDown} | ⬆️ ${totalUp}`;
+
+    currentNodesMap.clear();
+    nodes.forEach(n => {
+      if (n && n.id) currentNodesMap.set(n.id, n);
+    });
+    currentGroupedCountries = data.grouped || [];
+
+    let avgPing = 0;
+    if (nodes.length > 0) {
+      const sum = nodes.reduce((acc, n) => acc + (n.ping || 0), 0);
+      avgPing = Math.round(sum / nodes.length);
+    }
+    const avgPingEl = document.getElementById('avgPing');
+    if (avgPingEl) avgPingEl.innerText = `${avgPing} ms`;
+
+    renderGroupedNodes(currentGroupedCountries);
+    renderSocketsTable(stats.activeSockets || []);
+    renderClusterPeers(data.cluster || {});
+
+    if (data.overallHistory && telemetryChart) {
+      updateChartData(data.overallHistory);
+    }
+  } catch (err) {
+    console.error('Error rendering state UI:', err);
   }
 }
 
@@ -1005,6 +1012,9 @@ function submitAddInbound() {
       } else {
         alert(data.message || 'Ошибка создания прокси');
       }
+    });
+}
+
 function openAddVlessNodeModal() {
   const modal = document.getElementById('addVlessNodeModal');
   if (modal) {
@@ -1038,21 +1048,32 @@ function onVlessSecurityChange() {
   }
 }
 
+function fillVlessSelfHostDirect() {
+  const host = window.location.hostname || 'localhost';
+  const input = document.getElementById('vlessNodeHost');
+  if (input) input.value = host;
+}
+
 function submitAddVlessNode() {
   const name = document.getElementById('vlessNodeName').value.trim();
-  const host = document.getElementById('vlessNodeHost').value.trim();
-  const port = document.getElementById('vlessNodePort').value.trim();
+  let host = document.getElementById('vlessNodeHost').value.trim();
+  const port = document.getElementById('vlessNodePort').value.trim() || '443';
   const uuid = document.getElementById('vlessNodeUuid').value.trim();
   const security = document.getElementById('vlessNodeSecurity').value;
   const sni = document.getElementById('vlessNodeSni').value.trim();
+
+  // Auto-fallback to current server hostname/IP if left blank!
+  if (!host) {
+    host = window.location.hostname || 'localhost';
+  }
 
   const countryVal = document.getElementById('vlessNodeCountry').value.split('|');
   const countryName = countryVal[0];
   const countryCode = countryVal[1];
   const flag = countryVal[2];
 
-  if (!host || !port || !uuid) {
-    alert('Пожалуйста, заполните хост/IP, порт и UUID VLESS!');
+  if (!uuid) {
+    alert('Пожалуйста, введите или сгенерируйте UUID для VLESS узла!');
     return;
   }
 
@@ -1060,7 +1081,7 @@ function submitAddVlessNode() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      name,
+      name: name || `VLESS Server (${host})`,
       host,
       port,
       uuid,
@@ -1074,7 +1095,7 @@ function submitAddVlessNode() {
     .then(data => {
       if (data.success) {
         closeAddVlessNodeModal();
-        alert('⚡ VLESS узел успешно добавлен в балансировщик AntiLag!');
+        alert('⚡ VLESS узел успешно создан и добавлен в балансировку трафика!');
       } else {
         alert(data.message || 'Ошибка создания VLESS узла');
       }
