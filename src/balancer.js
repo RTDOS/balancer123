@@ -33,7 +33,7 @@ class AntiLagBalancer {
     this.activeOutboundId = null;
     this.ipAffinityMap = new Map(); // Target IP -> Node ID mapping
     this.clusterKey = crypto.randomBytes(32).toString('hex'); // 64-char SHA-256 cluster key
-    this.bypassRuTraffic = true; // Default ON: Route .ru / .рф / RU services directly without VPN
+    this.serverPublicIp = null;
     this.connectionLogs = []; // Rolling log of active connections (max 50)
     this.stats = {
       totalRoutedConnections: 0,
@@ -42,6 +42,12 @@ class AntiLagBalancer {
       totalBytesUploaded: 0,
       activeSockets: []
     };
+  }
+
+  setServerPublicIp(ip) {
+    if (ip && typeof ip === 'string') {
+      this.serverPublicIp = ip.trim();
+    }
   }
 
   isRuDomain(targetHost) {
@@ -77,7 +83,15 @@ class AntiLagBalancer {
     if (ip === '127.0.0.1' || ip === '0.0.0.0' || host === 'localhost' || ip === '::1') return true;
     if (ip.startsWith('127.') || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.16.')) return true;
 
-    // 2. Prevent routing loop: Check against all registered VPN node IPs and hosts
+    // 2. AntiLag Server's OWN Public IP (Prevents TUN Mode Loops!)
+    if (this.serverPublicIp) {
+      const selfIp = this.serverPublicIp.toLowerCase();
+      if (ip === selfIp || host === selfIp || host.includes(selfIp)) {
+        return true;
+      }
+    }
+
+    // 3. Prevent routing loop: Check against all registered VPN node IPs and hosts
     for (const node of this.nodes) {
       const nodeIp = (node.ip || node.serverIp || node.host || '').trim().toLowerCase();
       if (nodeIp) {

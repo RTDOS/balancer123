@@ -56,6 +56,12 @@ function resetFailedLogins(ip) {
 
 app.use(express.text({ type: '*/*' }));
 app.use((req, res, next) => {
+  if (req && req.get('host')) {
+    const hostIp = req.get('host').split(':')[0];
+    if (hostIp && hostIp !== 'localhost' && hostIp !== '127.0.0.1') {
+      balancer.setServerPublicIp(hostIp);
+    }
+  }
   if (typeof req.body === 'string') {
     try {
       const parsed = JSON.parse(req.body);
@@ -365,10 +371,10 @@ app.get('/api/inbounds', (req, res) => {
 
 // POST /api/inbounds
 app.post('/api/inbounds', async (req, res) => {
-  const { type, port, username, password, name } = req.body || {};
+  const { type, port, username, password, name, bypassRu } = req.body || {};
 
-  if (!['socks5', 'http', 'vless', 'tuic'].includes((type || '').toLowerCase())) {
-    return res.status(400).json({ success: false, message: 'Тип прокси должен быть SOCKS5, HTTP, VLESS или TUIC' });
+  if (!['socks5', 'http', 'vless', 'tuic', 'mtproto'].includes((type || '').toLowerCase())) {
+    return res.status(400).json({ success: false, message: 'Тип прокси должен быть SOCKS5, HTTP, VLESS, TUIC или MTProto' });
   }
 
   const portNum = parseInt(port);
@@ -387,7 +393,8 @@ app.post('/api/inbounds', async (req, res) => {
       port: portNum,
       username,
       password,
-      name
+      name,
+      bypassRu: bypassRu !== false
     });
     broadcastState();
     res.json({ success: true, inbound: created, inbounds: inboundManager.getInbounds() });
@@ -399,10 +406,10 @@ app.post('/api/inbounds', async (req, res) => {
 // PUT /api/inbounds/:id
 app.put('/api/inbounds/:id', async (req, res) => {
   const { id } = req.params;
-  const { type, port, username, password, name } = req.body || {};
+  const { type, port, username, password, name, bypassRu } = req.body || {};
 
   try {
-    const updated = await inboundManager.updateInbound(id, { type, port, username, password, name });
+    const updated = await inboundManager.updateInbound(id, { type, port, username, password, name, bypassRu: bypassRu !== false });
     broadcastState();
     res.json({ success: true, inbound: updated, inbounds: inboundManager.getInbounds() });
   } catch (e) {
