@@ -233,7 +233,8 @@ function getTelemetryData() {
     presetCountries: PRESET_COUNTRIES,
     connectionLogs: balancer.getConnectionLogs(),
     activeOutboundId: balancer.activeOutboundId,
-    overallHistory: healthEngine.getTelemetryForRange(activeTelemetryRange)
+    overallHistory: healthEngine.getTelemetryForRange(activeTelemetryRange),
+    ruBypassStats: balancer.ruBypassManager ? balancer.ruBypassManager.getStats() : { count: 0 }
   };
 }
 
@@ -265,6 +266,24 @@ function broadcastState() {
 }
 
 setInterval(broadcastState, 1500);
+
+// --- REST API ROUTES ---
+
+// GET /api/rubypass/stats
+app.get('/api/rubypass/stats', (req, res) => {
+  res.json({ success: true, ...balancer.ruBypassManager.getStats() });
+});
+
+// POST /api/rubypass/sync (Download latest RU bypass lists from GitHub)
+app.post('/api/rubypass/sync', async (req, res) => {
+  try {
+    const syncRes = await balancer.ruBypassManager.syncWithGithub();
+    broadcastState();
+    res.json(syncRes);
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
 
 // --- REST API ROUTES ---
 

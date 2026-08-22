@@ -4,6 +4,7 @@
  */
 
 const crypto = require('crypto');
+const RuBypassManager = require('./rubypass');
 
 function getStickyKey(targetHost) {
   if (!targetHost || typeof targetHost !== 'string') return 'default';
@@ -34,6 +35,8 @@ class AntiLagBalancer {
     this.ipAffinityMap = new Map(); // Target IP -> Node ID mapping
     this.clusterKey = crypto.randomBytes(32).toString('hex'); // 64-char SHA-256 cluster key
     this.serverPublicIp = null;
+    this.bypassRuTraffic = true; // Default ON: Route .ru / .рф / RU services directly without VPN
+    this.ruBypassManager = new RuBypassManager();
     this.connectionLogs = []; // Rolling log of active connections (max 50)
     this.stats = {
       totalRoutedConnections: 0,
@@ -51,26 +54,7 @@ class AntiLagBalancer {
   }
 
   isRuDomain(targetHost) {
-    if (!targetHost || typeof targetHost !== 'string') return false;
-    const host = targetHost.trim().toLowerCase();
-
-    if (host.endsWith('.ru') || host.endsWith('.su') || host.endsWith('.рф') || host.endsWith('.ru.com') || host.endsWith('.ru.net') || host.endsWith('.by')) {
-      return true;
-    }
-
-    const ruDomains = [
-      'yandex.ru', 'ya.ru', 'yandex.net', 'yastatic.net', 'vk.com', 'vk.ru', 'vkontakte.ru',
-      'mail.ru', 'ok.ru', 'gosuslugi.ru', 'sberbank.ru', 'sber.ru', 'tbank.ru', 'tinkoff.ru',
-      'ozon.ru', 'wildberries.ru', 'avito.ru', 'rutube.ru', 'kinopoisk.ru', 'dzen.ru',
-      'rambler.ru', '2gis.ru', 'mos.ru', 'nspk.ru', 'mirconnect.ru', 'gazprom.ru', 'vtb.ru',
-      'alfabank.ru', 'raiffeisen.ru', 'ria.ru', 'tass.ru', 'rbc.ru', 'lenta.ru', 'habr.com'
-    ];
-
-    for (const d of ruDomains) {
-      if (host === d || host.endsWith('.' + d)) return true;
-    }
-
-    return false;
+    return this.ruBypassManager.isRuTarget(targetHost);
   }
 
   isSelfOrLoopTarget(targetHost, targetIp) {

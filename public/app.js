@@ -204,6 +204,13 @@ function renderState(data) {
     currentAdminUsername = data.adminUsername || 'admin';
     toggleDefaultPassBanner(!!data.isDefaultPassword);
 
+    if (data.ruBypassStats) {
+      const ruBadge = document.getElementById('ruBypassCountBadge');
+      if (ruBadge) {
+        ruBadge.innerText = `${data.ruBypassStats.count || 0} доменов (GitHub Sync)`;
+      }
+    }
+
     const stats = data.stats || {};
     const nodes = data.nodes || [];
 
@@ -1052,6 +1059,25 @@ function fillVlessSelfHostDirect() {
   const host = window.location.hostname || 'localhost';
   const input = document.getElementById('vlessNodeHost');
   if (input) input.value = host;
+}
+
+function triggerRuBypassGithubSyncDirect() {
+  const badge = document.getElementById('ruBypassCountBadge');
+  if (badge) badge.innerText = '⏳ Синхронизация с GitHub...';
+
+  fetch('/api/rubypass/sync', { method: 'POST' })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        if (badge) badge.innerText = `${data.count || 0} доменов (GitHub Sync)`;
+        alert(`✅ База обхода RU успешно обновлена с GitHub!\nЗагружено доменов: ${data.downloadedCount}\nВсего доменов в базе: ${data.count}`);
+      } else {
+        alert(data.message || 'Ошибка обновления базы RU');
+      }
+    })
+    .catch(err => {
+      alert('Ошибка соединения при загрузке базы с GitHub');
+    });
 }
 
 function submitAddVlessNode() {

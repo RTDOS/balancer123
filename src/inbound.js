@@ -625,48 +625,56 @@ class InboundProxyManager {
     const server = net.createServer((clientSocket) => {
       const socketId = 'vless_' + Math.random().toString(36).substring(2, 10);
       let authenticatedUser = 'VLESS Client App';
+      let buffer = Buffer.alloc(0);
 
-      clientSocket.once('data', (header) => {
+      const onData = (chunk) => {
+        buffer = Buffer.concat([buffer, chunk]);
+
+        // VLESS Header requires at least 22 bytes for minimum IPv4 request
+        if (buffer.length < 22) return;
+
         try {
-          if (header.length < 18) {
-            clientSocket.destroy();
-            return;
-          }
-
-          const version = header[0];
-          const addonsLen = header[17];
+          const version = buffer[0];
+          const addonsLen = buffer[17];
           let cursor = 18 + addonsLen;
 
-          if (header.length < cursor + 4) {
+          if (buffer.length < cursor + 4) return;
+
+          const command = buffer[cursor]; // 0x01 = TCP CONNECT, 0x02 = UDP
+          cursor += 1;
+
+          const targetPort = buffer.readUInt16BE(cursor);
+          cursor += 2;
+
+          const addrType = buffer[cursor];
+          cursor += 1;
+
+          let targetHost = '';
+          if (addrType === 0x01) { // IPv4
+            if (buffer.length < cursor + 4) return;
+            targetHost = buffer.slice(cursor, cursor + 4).join('.');
+            cursor += 4;
+          } else if (addrType === 0x02) { // Domain Name
+            if (buffer.length < cursor + 1) return;
+            const domainLen = buffer[cursor];
+            cursor += 1;
+            if (buffer.length < cursor + domainLen) return;
+            targetHost = buffer.slice(cursor, cursor + domainLen).toString('utf-8');
+            cursor += domainLen;
+          } else if (addrType === 0x03) { // IPv6
+            if (buffer.length < cursor + 16) return;
+            targetHost = buffer.slice(cursor, cursor + 16).toString('hex').match(/.{1,4}/g).join(':');
+            cursor += 16;
+          } else {
+            clientSocket.removeListener('data', onData);
             clientSocket.destroy();
             return;
           }
 
-          const command = header[cursor]; // 0x01 = TCP CONNECT, 0x02 = UDP
-          cursor += 1;
+          // Header parsed successfully! Remove initial parser listener
+          clientSocket.removeListener('data', onData);
 
-          const targetPort = header.readUInt16BE(cursor);
-          cursor += 2;
-
-          const addrType = header[cursor];
-          cursor += 1;
-
-          let targetHost = '127.0.0.1';
-          if (addrType === 0x01) { // IPv4
-            targetHost = header.slice(cursor, cursor + 4).join('.');
-            cursor += 4;
-          } else if (addrType === 0x02) { // Domain Name
-            const domainLen = header[cursor];
-            cursor += 1;
-            targetHost = header.slice(cursor, cursor + domainLen).toString('utf-8');
-            cursor += domainLen;
-          } else if (addrType === 0x03) { // IPv6
-            targetHost = header.slice(cursor, cursor + 16).toString('hex').match(/.{1,4}/g).join(':');
-            cursor += 16;
-          }
-
-          const initialPayload = header.slice(cursor);
-
+          const initialPayload = buffer.slice(cursor);
           let displayTarget = targetHost;
 
           // Register connection in AntiLag Balancer & track socket in REAL TIME!
@@ -689,12 +697,12 @@ class InboundProxyManager {
               targetSocket.write(initialPayload);
             }
 
-            clientSocket.on('data', (chunk) => {
-              this.balancer.updateSocketTraffic(socketId, 0, chunk.length);
+            clientSocket.on('data', (c) => {
+              this.balancer.updateSocketTraffic(socketId, 0, c.length);
             });
 
-            targetSocket.on('data', (chunk) => {
-              this.balancer.updateSocketTraffic(socketId, chunk.length, 0);
+            targetSocket.on('data', (c) => {
+              this.balancer.updateSocketTraffic(socketId, c.length, 0);
             });
 
             clientSocket.pipe(targetSocket);
@@ -720,9 +728,12 @@ class InboundProxyManager {
           });
 
         } catch (e) {
+          clientSocket.removeListener('data', onData);
           clientSocket.destroy();
         }
-      });
+      };
+
+      clientSocket.on('data', onData);
 
       clientSocket.on('error', () => {
         this.balancer.removeActiveSocket(socketId);
