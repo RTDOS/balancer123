@@ -1005,6 +1005,79 @@ function submitAddInbound() {
       } else {
         alert(data.message || 'Ошибка создания прокси');
       }
+function openAddVlessNodeModal() {
+  const modal = document.getElementById('addVlessNodeModal');
+  if (modal) {
+    modal.classList.add('open');
+    if (!document.getElementById('vlessNodeUuid').value) {
+      generateVlessNodeUuidDirect();
+    }
+  }
+}
+
+function closeAddVlessNodeModal() {
+  const modal = document.getElementById('addVlessNodeModal');
+  if (modal) modal.classList.remove('open');
+}
+
+function generateVlessNodeUuidDirect() {
+  fetch('/api/generate-uuid')
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.uuid) {
+        document.getElementById('vlessNodeUuid').value = data.uuid;
+      }
+    });
+}
+
+function onVlessSecurityChange() {
+  const sec = document.getElementById('vlessNodeSecurity').value;
+  const sniGroup = document.getElementById('vlessSniGroup');
+  if (sniGroup) {
+    sniGroup.style.opacity = sec === 'none' ? '0.4' : '1.0';
+  }
+}
+
+function submitAddVlessNode() {
+  const name = document.getElementById('vlessNodeName').value.trim();
+  const host = document.getElementById('vlessNodeHost').value.trim();
+  const port = document.getElementById('vlessNodePort').value.trim();
+  const uuid = document.getElementById('vlessNodeUuid').value.trim();
+  const security = document.getElementById('vlessNodeSecurity').value;
+  const sni = document.getElementById('vlessNodeSni').value.trim();
+
+  const countryVal = document.getElementById('vlessNodeCountry').value.split('|');
+  const countryName = countryVal[0];
+  const countryCode = countryVal[1];
+  const flag = countryVal[2];
+
+  if (!host || !port || !uuid) {
+    alert('Пожалуйста, заполните хост/IP, порт и UUID VLESS!');
+    return;
+  }
+
+  fetch('/api/nodes/create-vless', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      host,
+      port,
+      uuid,
+      security,
+      sni,
+      countryName,
+      countryCode,
+      flag
+    })
+  }).then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        closeAddVlessNodeModal();
+        alert('⚡ VLESS узел успешно добавлен в балансировщик AntiLag!');
+      } else {
+        alert(data.message || 'Ошибка создания VLESS узла');
+      }
     });
 }
 

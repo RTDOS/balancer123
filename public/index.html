@@ -46,6 +46,9 @@
         <button class="btn btn-secondary btn-sm" onclick="openExportModal()" title="Экспорт ссылок для клиентов">
           🔗 Подписки
         </button>
+        <button class="btn btn-secondary btn-sm" onclick="openAddVlessNodeModal()" style="background:rgba(245,158,11,0.15); border-color:rgba(245,158,11,0.4); color:#fbbf24;" title="Быстрое создание простого VLESS узла">
+          ⚡ Создать VLESS
+        </button>
         <button class="btn btn-primary btn-sm" onclick="openImportModal()">
           <span>+ Импорт ссылок</span>
         </button>
@@ -180,9 +183,14 @@
 
       <!-- VPN Outbound Nodes List -->
       <section class="card nodes-section">
-        <div class="card-header">
-          <h3>Подключенные VPN / Proxy сервера</h3>
-          <span class="badge" id="countryCountBadge">0 стран</span>
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <h3 style="margin:0;">Подключенные VPN / Proxy сервера</h3>
+            <span class="badge" id="countryCountBadge">0 стран</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="openAddVlessNodeModal()" style="background:rgba(245,158,11,0.15); border-color:rgba(245,158,11,0.4); color:#fbbf24;">
+            ⚡ Создать VLESS узел
+          </button>
         </div>
         <div id="nodesContainer" class="nodes-container">
           <!-- Dynamic Node Cards rendered via JS -->
@@ -347,6 +355,78 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeAddInboundModal()">Отмена</button>
         <button class="btn btn-primary" onclick="submitAddInbound()">Создать прокси</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Custom VLESS Outbound Node Modal -->
+  <div class="modal-overlay" id="addVlessNodeModal">
+    <div class="modal-card" style="max-width:480px;">
+      <div class="modal-header">
+        <h2>⚡ Создать VLESS Узел для Балансировщика</h2>
+        <button class="close-btn" onclick="closeAddVlessNodeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">
+          Введите параметры любого VLESS сервера, и AntiLag автоматически добавит его в балансировку трафика и Mesh-кластер!
+        </p>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label>Название узла (например: Germany VLESS)</label>
+          <input type="text" id="vlessNodeName" class="form-input" placeholder="например: Germany VLESS Server">
+        </div>
+
+        <div class="form-row" style="display:flex; gap:10px; margin-top:12px;">
+          <div style="flex:2;">
+            <label>IP адрес или Домен сервера</label>
+            <input type="text" id="vlessNodeHost" class="form-input" placeholder="например: 185.220.101.5 или de.vpn.com">
+          </div>
+          <div style="flex:1;">
+            <label>Порт</label>
+            <input type="number" id="vlessNodePort" class="form-input" value="443">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label>UUID Клиента</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="vlessNodeUuid" class="form-input" placeholder="например: 93a8b412-402a-4361-8255-7389ef121111" style="font-family:'JetBrains Mono', monospace;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="generateVlessNodeUuidDirect()" title="Сгенерировать UUID">🎲 UUID</button>
+          </div>
+        </div>
+
+        <div class="form-row" style="display:flex; gap:10px; margin-top:12px;">
+          <div style="flex:1;">
+            <label>Шифрование / Security</label>
+            <select id="vlessNodeSecurity" class="form-input" onchange="onVlessSecurityChange()">
+              <option value="none">Без шифрования (none)</option>
+              <option value="tls">TLS (Standard)</option>
+              <option value="reality">VLESS REALITY</option>
+            </select>
+          </div>
+          <div style="flex:1;" id="vlessSniGroup">
+            <label>SNI (для TLS/REALITY)</label>
+            <input type="text" id="vlessNodeSni" class="form-input" placeholder="например: google.com">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label>Страна размещения</label>
+          <select id="vlessNodeCountry" class="form-input">
+            <option value="Germany|DE|🇩🇪">🇩🇪 Германия (Germany)</option>
+            <option value="Netherlands|NL|🇳🇱">🇳🇱 Нидерланды (Netherlands)</option>
+            <option value="Finland|FI|🇫🇮">🇫🇮 Финляндия (Finland)</option>
+            <option value="United States|US|🇺🇸">🇺🇸 США (United States)</option>
+            <option value="Poland|PL|🇵🇱">🇵🇱 Польша (Poland)</option>
+            <option value="Singapore|SG|🇸🇬">🇸🇬 Сингапур (Singapore)</option>
+            <option value="France|FR|🇫🇷">🇫🇷 Франция (France)</option>
+            <option value="United Kingdom|GB|🇬🇧">🇬🇧 Великобритания (UK)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeAddVlessNodeModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="submitAddVlessNode()">⚡ Создать VLESS узел</button>
       </div>
     </div>
   </div>

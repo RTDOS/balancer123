@@ -466,6 +466,47 @@ app.get('/api/nodes', (req, res) => {
   });
 });
 
+// POST /api/nodes/create-vless - 1-Click Simple VLESS Node Creator
+app.post('/api/nodes/create-vless', (req, res) => {
+  const { name, host, port, uuid, security, sni, countryName, countryCode, flag } = req.body || {};
+
+  if (!host || !port || !uuid) {
+    return res.status(400).json({ success: false, message: 'Хост/IP, порт и UUID обязательны для VLESS узла!' });
+  }
+
+  const vlessPort = parseInt(port) || 443;
+  const nodeName = name ? name.trim() : `VLESS Server (${host})`;
+  const sec = security || 'none';
+  let vlessUrl = `vless://${uuid.trim()}@${host.trim()}:${vlessPort}?type=tcp&security=${sec}`;
+  if (sni && sec !== 'none') {
+    vlessUrl += `&sni=${encodeURIComponent(sni.trim())}`;
+  }
+  vlessUrl += `#${encodeURIComponent(nodeName)}`;
+
+  let overrideCountry = null;
+  if (countryName && countryCode) {
+    overrideCountry = {
+      country: countryName,
+      code: countryCode,
+      flag: flag || '🌐'
+    };
+  }
+
+  const parsed = parseTextBlob(vlessUrl, overrideCountry);
+  if (parsed.length === 0) {
+    return res.status(422).json({ success: false, message: 'Не удалось сгенерировать VLESS узел. Проверьте формат UUID' });
+  }
+
+  const addedCount = balancer.addNodes(parsed);
+  broadcastState();
+
+  res.json({
+    success: true,
+    message: 'Узел VLESS успешно создан и добавлен в балансировщик!',
+    node: parsed[0]
+  });
+});
+
 // POST /api/parse
 app.post('/api/parse', (req, res) => {
   let text = '';
