@@ -204,8 +204,15 @@ class AntiLagBalancer {
 
     const shouldBypassRu = meta.bypassRu !== undefined ? meta.bypassRu : this.bypassRuTraffic;
 
-    // 0b. Check RU Traffic Bypass Filter (Direct Connection for .ru / Russian Services)
+    // 0b. Check RU Traffic Bypass Filter (Direct Connection for .ru / Russian Services or RU Node)
     if (shouldBypassRu && this.isRuDomain(rawHost)) {
+      // Check if user has an active Russian node in balancer.nodes
+      const ruNode = this.nodes.find(n => n.status !== 'dead' && (n.countryCode === 'RU' || (n.countryName && (n.countryName.toLowerCase().includes('russia') || n.countryName.toLowerCase().includes('россия')))));
+
+      if (ruNode) {
+        return this.createSocketRecord(targetIp, targetPort, protocol, ruNode, 'RU Sector -> Active Russian Outbound Node', meta);
+      }
+
       const directRuNode = {
         id: 'direct_ru',
         name: 'Direct (RU Bypass)',

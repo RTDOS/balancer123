@@ -267,7 +267,41 @@ function broadcastState() {
 
 setInterval(broadcastState, 1500);
 
-// --- REST API ROUTES ---
+// GET /proxy.pac - PAC Script (Proxy Auto-Config) for Automatic Client-Side RU Sector Bypass
+app.get('/proxy.pac', (req, res) => {
+  const host = req.get('host') ? req.get('host').split(':')[0] : (balancer.serverPublicIp || '2.26.49.100');
+  const socksPort = 1080;
+
+  const pacContent = `function FindProxyForURL(url, host) {
+  // Direct connection for Russian domains & domestic services
+  if (
+    dnsDomainIs(host, ".ru") ||
+    dnsDomainIs(host, ".рф") ||
+    dnsDomainIs(host, ".su") ||
+    dnsDomainIs(host, ".by") ||
+    shExpMatch(host, "*.ozon.ru") ||
+    shExpMatch(host, "*.ozon.cloud") ||
+    shExpMatch(host, "*.yandex.ru") ||
+    shExpMatch(host, "*.vk.com") ||
+    shExpMatch(host, "*.sberbank.ru") ||
+    shExpMatch(host, "*.tbank.ru") ||
+    shExpMatch(host, "*.wildberries.ru") ||
+    shExpMatch(host, "*.gosuslugi.ru") ||
+    isInNet(host, "10.0.0.0", "255.0.0.0") ||
+    isInNet(host, "172.16.0.0", "255.240.0.0") ||
+    isInNet(host, "192.168.0.0", "255.255.0.0") ||
+    isInNet(host, "127.0.0.0", "255.0.0.0")
+  ) {
+    return "DIRECT";
+  }
+
+  // Proxy all other international traffic through AntiLag Balancer
+  return "SOCKS5 ${host}:${socksPort}; SOCKS ${host}:${socksPort}; DIRECT";
+}`;
+
+  res.setHeader('Content-Type', 'application/x-ns-proxy-autoconfig');
+  res.send(pacContent.trim());
+});
 
 // GET /api/rubypass/stats
 app.get('/api/rubypass/stats', (req, res) => {
