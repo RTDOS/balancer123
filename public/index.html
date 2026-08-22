@@ -86,6 +86,24 @@
           </div>
         </div>
 
+        <!-- RU Traffic Filter Card -->
+        <div class="card" style="margin-bottom: 20px; background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 14px; padding: 14px 18px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+            <div>
+              <div style="font-size:14px; font-weight:700; color:#34d399; display:flex; align-items:center; gap:8px;">
+                <span>🇷🇺 Умная фильтрация RU-трафика (Обход ВПН для российских сайтов)</span>
+              </div>
+              <div style="font-size:12px; color:#9ca3af; margin-top:4px; line-height:1.4;">
+                Сайты <code>.ru</code>, <code>.рф</code>, Яндекс, VK, Госуслуги, Сбер, Т-Банк, Ozon, Wildberries и Rutube идут напрямик на максимальной скорости сервера без задержек VPN!
+              </div>
+            </div>
+            <label style="position:relative; display:inline-block; width:44px; height:24px; cursor:pointer;">
+              <input type="checkbox" id="bypassRuToggle" checked onchange="toggleBypassRu(this.checked)" style="opacity:0; width:0; height:0;">
+              <span id="bypassRuSlider" style="position:absolute; top:0; left:0; right:0; bottom:0; background-color:#10b981; transition:.3s; border-radius:24px; box-shadow:0 0 8px rgba(16,185,129,0.4);"></span>
+            </label>
+          </div>
+        </div>
+
         <!-- Metrics Stats (6 Cards Grid - 2 per row) -->
         <div class="metrics-grid">
           <div class="stat-card">
@@ -316,6 +334,7 @@
             <option value="http">HTTP Прокси (Системный прокси)</option>
             <option value="vless">⚡ VLESS Прокси (Happ / Hiddify / v2rayN / Shadowrocket)</option>
             <option value="tuic">🚀 TUIC v5 Прокси (QUIC / UDP Fast)</option>
+            <option value="mtproto">✈️ MTProto Fake-TLS (Telegram Обход Блокировок)</option>
           </select>
         </div>
         <div class="form-group" style="margin-top:12px;">

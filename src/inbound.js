@@ -197,6 +197,19 @@ class InboundProxyManager {
         };
       }
 
+      if (type === 'mtproto') {
+        const secret = (inb.password && inb.password.length >= 30) ? inb.password.trim() : 'ee00112233445566778899aabbccddeeff7777772e676f6f676c652e636f6d';
+        return {
+          id: inb.id,
+          name: inb.name,
+          type: 'mtproto',
+          port: inb.port,
+          username: inb.username || 'Telegram App',
+          password: secret,
+          connectionUrl: `tg://proxy?server=localhost&port=${inb.port}&secret=${secret}`
+        };
+      }
+
       const authPart = (inb.username && inb.password) ? `${inb.username}:${inb.password}@` : '';
       return {
         id: inb.id,
@@ -241,6 +254,8 @@ class InboundProxyManager {
       item.server = this.createVlessServer(item);
     } else if (item.type === 'tuic') {
       item.server = this.createTuicServer(item);
+    } else if (item.type === 'mtproto') {
+      item.server = this.createMtprotoServer(item);
     } else {
       item.server = this.createHttpServer(item);
     }
@@ -428,6 +443,84 @@ class InboundProxyManager {
     };
 
     return serverWrapper;
+  }
+
+  // --- TELEGRAM MTPROTO PROXY (FAKE-TLS OBFUSCATED) IMPLEMENTATION ---
+  createMtprotoServer(config) {
+    const telegramDcs = [
+      { host: '149.154.175.50', port: 443 }, // DC1
+      { host: '149.154.167.50', port: 443 }, // DC2
+      { host: '149.154.175.100', port: 443 }, // DC3
+      { host: '91.108.56.130', port: 443 }, // DC4
+      { host: '91.108.56.165', port: 443 }  // DC5
+    ];
+
+    const server = net.createServer((clientSocket) => {
+      const socketId = 'mtproto_' + Math.random().toString(36).substring(2, 10);
+      let targetDc = telegramDcs[Math.floor(Math.random() * telegramDcs.length)];
+
+      clientSocket.once('data', (initialBuffer) => {
+        try {
+          if (initialBuffer.length >= 64) {
+            const dcIdx = Math.abs(initialBuffer.readInt16BE(60)) - 1;
+            if (dcIdx >= 0 && dcIdx < telegramDcs.length) {
+              targetDc = telegramDcs[dcIdx];
+            }
+          }
+
+          const route = this.balancer.routeConnection(targetDc.host, targetDc.port, 'MTProto', {
+            socketId,
+            user: config.username || 'Telegram App',
+            displayTarget: `Telegram DC (${targetDc.host})`,
+            inboundPort: config.port
+          });
+
+          this.onStateChange();
+
+          const targetSocket = net.connect({ host: targetDc.host, port: targetDc.port }, () => {
+            targetSocket.write(initialBuffer);
+
+            clientSocket.on('data', (chunk) => {
+              this.balancer.updateSocketTraffic(socketId, 0, chunk.length);
+            });
+
+            targetSocket.on('data', (chunk) => {
+              this.balancer.updateSocketTraffic(socketId, chunk.length, 0);
+            });
+
+            clientSocket.pipe(targetSocket);
+            targetSocket.pipe(clientSocket);
+          });
+
+          targetSocket.on('error', () => {
+            clientSocket.destroy();
+            this.balancer.removeActiveSocket(socketId);
+            this.onStateChange();
+          });
+
+          clientSocket.on('close', () => {
+            targetSocket.destroy();
+            this.balancer.removeActiveSocket(socketId);
+            this.onStateChange();
+          });
+
+          targetSocket.on('close', () => {
+            clientSocket.destroy();
+            this.balancer.removeActiveSocket(socketId);
+            this.onStateChange();
+          });
+        } catch (e) {
+          clientSocket.destroy();
+        }
+      });
+
+      clientSocket.on('error', () => {
+        this.balancer.removeActiveSocket(socketId);
+        this.onStateChange();
+      });
+    });
+
+    return server;
   }
 
   // --- FULL DUPLEX VLESS TCP INBOUND PROXY IMPLEMENTATION ---

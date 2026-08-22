@@ -585,18 +585,30 @@ function tickSocketUptimes() {
 
 // --- TELEGRAM PROXY EXPORT LOGIC ---
 
+function toggleBypassRu(enabled) {
+  fetch('/api/settings/bypass-ru', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled })
+  }).then(res => res.json())
+    .then(data => {
+      console.log('🇷🇺 RU Traffic Bypass status updated:', data.bypassRuTraffic);
+    });
+}
+
 function openTelegramExportModal() {
   const selectEl = document.getElementById('tgInboundSelect');
   selectEl.innerHTML = '';
 
-  const socksInbounds = currentInboundsList.filter(i => i.type === 'socks5');
-  const targetList = socksInbounds.length > 0 ? socksInbounds : currentInboundsList;
+  const tgInbounds = currentInboundsList.filter(i => i.type === 'socks5' || i.type === 'mtproto');
+  const targetList = tgInbounds.length > 0 ? tgInbounds : currentInboundsList;
 
   if (targetList.length === 0) {
-    selectEl.innerHTML = `<option value="">Нет активных SOCKS5 подключений</option>`;
+    selectEl.innerHTML = `<option value="">Нет активных Telegram / SOCKS5 / MTProto подключений</option>`;
   } else {
     targetList.forEach(inb => {
-      selectEl.innerHTML += `<option value="${inb.id}">SOCKS5 Proxy (${inb.name}) - Port: ${inb.port}</option>`;
+      const typeLabel = inb.type === 'mtproto' ? '✈️ MTProto Fake-TLS' : 'SOCKS5 Proxy';
+      selectEl.innerHTML += `<option value="${inb.id}">${typeLabel} (${inb.name}) - Port: ${inb.port}</option>`;
     });
   }
 
@@ -629,6 +641,17 @@ function updateTelegramProxyPreview() {
   const port = inb.port || 1080;
   const user = inb.username ? encodeURIComponent(inb.username) : '';
   const pass = inb.password ? encodeURIComponent(inb.password) : '';
+
+  if (inb.type === 'mtproto') {
+    const secret = inb.password || 'ee00112233445566778899aabbccddeeff7777772e676f6f676c652e636f6d';
+    const tgAppUrl = `tg://proxy?server=${encodeURIComponent(serverHost)}&port=${port}&secret=${encodeURIComponent(secret)}`;
+    const tmeProxyUrl = `https://t.me/proxy?server=${encodeURIComponent(serverHost)}&port=${port}&secret=${encodeURIComponent(secret)}`;
+
+    document.getElementById('tgSocksLinkPreview').innerText = tmeProxyUrl;
+    document.getElementById('tgAppSocksLinkPreview').innerText = tgAppUrl;
+    document.getElementById('tgProxyLinkPreview').innerText = tmeProxyUrl;
+    return;
+  }
 
   let queryParams = `server=${encodeURIComponent(serverHost)}&port=${port}`;
   if (user && pass) {
@@ -683,6 +706,11 @@ function formatInboundConnectionUrl(inb, host = window.location.hostname || 'loc
     return `tuic://${uuid}:${tuicPass}@${host}:${port}?congestion_control=bbr&alpn=h3&udp_relay_mode=native&allow_insecure=1#AntiLag_TUIC_${port}`;
   }
 
+  if (type === 'mtproto') {
+    const secret = pass || 'ee00112233445566778899aabbccddeeff7777772e676f6f676c652e636f6d';
+    return `tg://proxy?server=${host}&port=${port}&secret=${secret}`;
+  }
+
   const authPart = (user && pass) ? `${user}:${pass}@` : '';
   return `${type}://${authPart}${host}:${port}`;
 }
@@ -722,6 +750,7 @@ function renderInboundsConfigCards(inbounds) {
             <option value="http" ${initialType === 'http' ? 'selected' : ''}>HTTP</option>
             <option value="vless" ${initialType === 'vless' ? 'selected' : ''}>⚡ VLESS</option>
             <option value="tuic" ${initialType === 'tuic' ? 'selected' : ''}>🚀 TUIC v5</option>
+            <option value="mtproto" ${initialType === 'mtproto' ? 'selected' : ''}>✈️ MTProto (Telegram Fake-TLS)</option>
           </select>
         </div>
         <div style="flex:1;">

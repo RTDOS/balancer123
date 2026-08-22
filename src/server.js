@@ -598,6 +598,14 @@ app.post('/api/system/update', (req, res) => {
   }, 1000);
 });
 
+// POST /api/settings/bypass-ru
+app.post('/api/settings/bypass-ru', (req, res) => {
+  const { enabled } = req.body;
+  balancer.bypassRuTraffic = Boolean(enabled);
+  broadcastState();
+  res.json({ success: true, bypassRuTraffic: balancer.bypassRuTraffic });
+});
+
 // POST /api/mode
 app.post('/api/mode', (req, res) => {
   const { mode } = req.body;

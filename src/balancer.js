@@ -33,6 +33,7 @@ class AntiLagBalancer {
     this.activeOutboundId = null;
     this.ipAffinityMap = new Map(); // Target IP -> Node ID mapping
     this.clusterKey = crypto.randomBytes(32).toString('hex'); // 64-char SHA-256 cluster key
+    this.bypassRuTraffic = true; // Default ON: Route .ru / .рф / RU services directly without VPN
     this.connectionLogs = []; // Rolling log of active connections (max 50)
     this.stats = {
       totalRoutedConnections: 0,
@@ -41,6 +42,52 @@ class AntiLagBalancer {
       totalBytesUploaded: 0,
       activeSockets: []
     };
+  }
+
+  isRuDomain(targetHost) {
+    if (!targetHost || typeof targetHost !== 'string') return false;
+    const host = targetHost.trim().toLowerCase();
+
+    if (host.endsWith('.ru') || host.endsWith('.su') || host.endsWith('.рф') || host.endsWith('.ru.com') || host.endsWith('.ru.net') || host.endsWith('.by')) {
+      return true;
+    }
+
+    const ruDomains = [
+      'yandex.ru', 'ya.ru', 'yandex.net', 'yastatic.net', 'vk.com', 'vk.ru', 'vkontakte.ru',
+      'mail.ru', 'ok.ru', 'gosuslugi.ru', 'sberbank.ru', 'sber.ru', 'tbank.ru', 'tinkoff.ru',
+      'ozon.ru', 'wildberries.ru', 'avito.ru', 'rutube.ru', 'kinopoisk.ru', 'dzen.ru',
+      'rambler.ru', '2gis.ru', 'mos.ru', 'nspk.ru', 'mirconnect.ru', 'gazprom.ru', 'vtb.ru',
+      'alfabank.ru', 'raiffeisen.ru', 'ria.ru', 'tass.ru', 'rbc.ru', 'lenta.ru', 'habr.com'
+    ];
+
+    for (const d of ruDomains) {
+      if (host === d || host.endsWith('.' + d)) return true;
+    }
+
+    return false;
+  }
+
+  isSelfOrLoopTarget(targetHost, targetIp) {
+    const host = (targetHost || '').trim().toLowerCase();
+    const ip = (targetIp || '').trim().toLowerCase();
+
+    if (!host && !ip) return false;
+
+    // 1. Localhost / Loopback / LAN IPs
+    if (ip === '127.0.0.1' || ip === '0.0.0.0' || host === 'localhost' || ip === '::1') return true;
+    if (ip.startsWith('127.') || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.16.')) return true;
+
+    // 2. Prevent routing loop: Check against all registered VPN node IPs and hosts
+    for (const node of this.nodes) {
+      const nodeIp = (node.ip || node.serverIp || node.host || '').trim().toLowerCase();
+      if (nodeIp) {
+        if (ip === nodeIp || host === nodeIp || host.startsWith(nodeIp) || (node.raw && node.raw.includes(host))) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   getClusterKey() {
@@ -140,12 +187,43 @@ class AntiLagBalancer {
   routeConnection(targetIp, targetPort, protocol = 'TCP', meta = {}) {
     this.stats.totalRoutedConnections++;
 
+    const rawHost = meta.displayTarget || targetIp || '';
+
+    // 0a. Anti-Loop Guard (Prevent Routing Loops to VPN Node IPs / Localhost / Self Target)
+    if (this.isSelfOrLoopTarget(rawHost, targetIp)) {
+      const directLoopNode = {
+        id: 'direct_anti_loop',
+        name: 'Direct (Anti-Loop Guard)',
+        flag: '🛡️',
+        countryName: 'Direct Loop Protection',
+        ping: 1,
+        jitter: 0,
+        lossRatio: 0,
+        status: 'active'
+      };
+      return this.createSocketRecord(targetIp, targetPort, protocol, directLoopNode, 'Anti-Loop Guard: Self/Node Loop Prevented', meta);
+    }
+
+    // 0b. Check RU Traffic Bypass Filter (Direct Connection for .ru / Russian Services)
+    if (this.bypassRuTraffic && this.isRuDomain(rawHost)) {
+      const directRuNode = {
+        id: 'direct_ru',
+        name: 'Direct (RU Bypass)',
+        flag: '🇷🇺',
+        countryName: 'Russia Direct',
+        ping: 2,
+        jitter: 0,
+        lossRatio: 0,
+        status: 'active'
+      };
+      return this.createSocketRecord(targetIp, targetPort, protocol, directRuNode, 'Direct RU Traffic Bypass (No VPN)', meta);
+    }
+
     const activeNodes = this.nodes.filter(n => n.status !== 'dead');
     if (activeNodes.length === 0) {
       return { node: null, reason: 'No active nodes available' };
     }
 
-    const rawHost = meta.displayTarget || targetIp || '';
     const stickyKey = getStickyKey(rawHost);
 
     // 1. Check Sticky Domain / Subnet Affinity
